@@ -59,6 +59,8 @@ class Bible {
   final DateTime _createdAt = DateTime.now();
   Duration? _loadTime;
 
+  DateTime get createdAt => _createdAt;
+
   Bible._(this.books, this.language) {
     _booksByEnum = {for (final book in books) book.bookEnum: book};
     _searchIndex = _buildSearchIndex();

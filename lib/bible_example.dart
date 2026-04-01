@@ -1,5 +1,4 @@
 import 'package:bible_io/bible_io.dart';
-import 'src/extensions.dart'; // Explicit import for extensions
 
 /// Example usage of bible_io package showcasing modern Dart features.
 Future<void> bibleExample() async {
@@ -25,7 +24,9 @@ Future<void> bibleExample() async {
 
   // 4. OPERATOR OVERLOADING (Dart-like syntax)
   final genesis = bible[BibleBookEnum.genesis]; // bible[book]
+  print('Genesis has ${genesis.chapters.length} chapters');
   final chapter1 = bible[(BibleBookEnum.genesis, 1)]; // bible[(book, chapter)]
+  print('Chapter 1 has ${chapter1.verses.length} verses');
   final verse = bible[(BibleBookEnum.genesis, 1, 1)]; // bible[(book, chapter, verse)]
 
   // 5. RESULT TYPES (Functional error handling)
@@ -42,15 +43,18 @@ Future<void> bibleExample() async {
 
   // 5. RECORDS AND MODERN TYPES
   final reference = (book: BibleBookEnum.genesis, chapter: 1, verse: 1);
+  print('Reference record: $reference');
 
   // 6. FUNCTIONAL PROGRAMMING
   final allVerses = bible.allVerses;
   final longVerses = allVerses.where((v) => v.length > 200);
   final wordCount = allVerses.fold<int>(0, (sum, verse) => sum + verse.words.length);
+  print('Long verses count: ${longVerses.length}, total word count: $wordCount');
 
   // 7. NULL SAFETY
   final safeVerse = bible.verseOrNull('Genesis 1:1');
   final safeVerses = bible.versesOrNull('Genesis 1:1-3');
+  print('safeVerse: ${safeVerse?.text ?? 'not found'}, safeVerses count: ${safeVerses?.length ?? 0}');
 
   // 8. STATISTICS AND ANALYTICS
   print('Bible stats: ${bible.stats}');
@@ -63,6 +67,7 @@ Future<void> bibleExample() async {
     caseSensitive: false,
     maxResults: 5,
   );
+  print('Advanced search count: ${advancedSearch.count}');
 
   // 10. GROUPING AND ANALYSIS
   final byBook = searchResults.byBook;
@@ -81,6 +86,7 @@ Future<void> bibleExample() async {
   // 12. ITERABLES AND LAZY EVALUATION
   final genesisVerses = bible.allVerses.where((v) => v.book == BibleBookEnum.genesis);
   final versesWithGod = genesisVerses.where((v) => v.containsWord('God'));
+  print('Genesis verses containing God: ${versesWithGod.length}');
 
   // 13. PATTERN MATCHING (Modern Dart)
   final verseResult = bible.getVerseByRefResult('Genesis 1:1');

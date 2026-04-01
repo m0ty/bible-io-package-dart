@@ -1,5 +1,4 @@
 import 'package:bible_io/bible_io.dart';
-import 'package:test/test.dart';
 
 /// Shared test utilities for Bible-related tests.
 class BibleTestFixture {
@@ -8,9 +7,7 @@ class BibleTestFixture {
   /// Get a shared Bible instance for testing.
   /// Loads the KJV Bible once and reuses it across all tests.
   static Future<Bible> getBible() async {
-    if (_bible == null) {
-      _bible = await Bible.load('test/bible_versions/en_kjv.json');
-    }
+    _bible ??= await Bible.load('test/bible_versions/en_kjv.json');
     return _bible!;
   }
 
