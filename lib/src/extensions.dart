@@ -25,26 +25,6 @@ extension BibleExtensions on Bible {
     }
   }
 
-  /// Search with advanced options.
-  SearchResults searchAdvanced(String query, {
-    bool caseSensitive = false,
-    bool wholeWords = false,
-    int? maxResults,
-  }) {
-    final results = search(query);
-    final filtered = results.where((verse) {
-      if (caseSensitive && !verse.text.contains(query)) return false;
-      if (wholeWords) {
-        final pattern = RegExp(r'\b' + RegExp.escape(query) + r'\b', caseSensitive: false);
-        if (!pattern.hasMatch(verse.text)) return false;
-      }
-      return true;
-    });
-
-    final limited = maxResults != null ? filtered.take(maxResults) : filtered;
-    return SearchResults(query, limited.toList());
-  }
-
   /// Fuzzy search with Levenshtein distance.
   SearchResults fuzzySearch(String query, {
     int maxDistance = 2,

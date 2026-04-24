@@ -56,7 +56,7 @@ switch (result) {
 ```dart
 // Chain operations fluently
 final loveVerses = bible
-    .searchAdvanced('love', maxResults: 10, wholeWords: true)
+    .searchAdvanced(text: 'love', maxResults: 10, wholeWords: true)
     .verses
     .where((v) => v.book == BibleBookEnum.john)
     .toList();
@@ -85,6 +85,7 @@ print('Genesis stats: ${genesis.stats}');
 // Advanced search with filtering
 final results = bible.searchAdvanced(
   text: 'God',
+  mode: SearchMode.exact,       // exact phrase; use all/any for term search
   book: BibleBookEnum.genesis,  // Filter by book
   caseSensitive: false,
   wholeWords: true,
