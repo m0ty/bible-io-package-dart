@@ -1,154 +1,139 @@
-# Bible IO 📖
+# Bible IO
 
-A modern Dart package for loading and working with structured Bible text data, featuring Dart's latest language features for an idiomatic, functional API.
+A Dart package for loading and working with structured Bible text data. It supports async JSON loading, reference parsing, operator-based navigation, result-style error handling, statistics helpers, and Unicode-aware search.
 
-## ✨ Modern Dart Features
+## Features
 
-- **Async/Await**: Load Bibles asynchronously with `Bible.load()`
-- **Operator Overloading**: Access content with `bible[book]`, `bible[(book, chapter)]`, `bible[(book, chapter, verse)]`
-- **Result Types**: Functional error handling with `Result<T>` instead of exceptions
-- **Extension Methods**: Fluent, chainable API with extension methods
-- **Records & Typedefs**: Modern type system with `BibleReference` records
-- **Pattern Matching**: Use switch expressions and pattern matching
-- **Null Safety**: Comprehensive null-safe APIs with `verseOrNull()`, `versesOrNull()`
-- **Functional Programming**: Iterables, folds, maps, and lazy evaluation
-- **Statistics & Analytics**: Built-in stats for Bible, Book, Chapter, and Verse analysis
+- Async Bible loading with `Bible.load()`
+- UTF-8 safe loading for non-Latin Bible text
+- Indexed search with stable canonical Bible order
+- Unicode-aware tokenization for Arabic, Chinese, Greek, Russian, Korean, Hebrew, and other scripts
+- Exact phrase, all-terms, and any-term advanced search modes
+- Whole-word matching without relying on ASCII-oriented `\b`
+- Operator access with `bible[book]`, `bible[(book, chapter)]`, and `bible[(book, chapter, verse)]`
+- Reference parsing through `bible_io_references`
+- Result-based helpers such as `getVerseResult()`
+- Statistics helpers for Bible, book, chapter, and verse data
 
-## 🚀 Installation
+## Installation
 
 ```yaml
 dependencies:
-  bible_io: ^1.0.0
-  bible_io_references: ^1.0.0
+  bible_io: ^1.0.1
 ```
 
-## 📚 Quick Start
+`bible_io_references` is exported by this package, so consumers can import `package:bible_io/bible_io.dart` for both Bible IO and reference types.
 
-### Async Loading
+## Quick Start
+
 ```dart
 import 'package:bible_io/bible_io.dart';
 
-// Load asynchronously (modern Dart!)
-final bible = await Bible.load('path/to/en_kjv.json');
-```
+Future<void> main() async {
+  final bible = await Bible.load('path/to/en_kjv.json');
 
-### Operator Overloading
-```dart
-// Convenient access with index operators
-final genesis = bible[BibleBookEnum.genesis];
-final chapter1 = bible[(BibleBookEnum.genesis, 1)];
-final verse = bible[(BibleBookEnum.genesis, 1, 1)];
-```
+  final verse = bible.getVerse(BibleBookEnum.genesis, 1, 1);
+  print(verse.text);
 
-### Result-Based Error Handling
-```dart
-// Functional error handling (no exceptions!)
-final result = bible.getVerseResult(BibleBookEnum.genesis, 1, 1);
-switch (result) {
-  case Success(value: final verse):
-    print('Found: ${verse.text}');
-  case Failure(error: final error):
-    print('Error: $error');
+  final john316 = bible.getVerseByRef('John 3:16');
+  print(john316.text);
 }
 ```
 
-### Fluent Extension Methods
+## Navigation
+
 ```dart
-// Chain operations fluently
-final loveVerses = bible
-    .searchAdvanced(text: 'love', maxResults: 10, wholeWords: true)
-    .verses
-    .where((v) => v.book == BibleBookEnum.john)
-    .toList();
+final genesis = bible[BibleBookEnum.genesis];
+final genesis1 = bible[(BibleBookEnum.genesis, 1)];
+final genesis1v1 = bible[(BibleBookEnum.genesis, 1, 1)];
+
+final verses = bible.getVerses(BibleBookEnum.genesis, 1);
+final range = bible.getVerseRangeByRef('Genesis 1:1-3');
 ```
 
-### Null-Safe Operations
+## Search
+
+`search()` is a fast all-terms search. It tokenizes the query and returns verses containing every token. It is not an exact phrase search.
+
 ```dart
-// Safe access with null safety
-final verse = bible.verseOrNull('Genesis 1:1');
-final verses = bible.versesOrNull('Genesis 1:1-3');
+final results = bible.search('in the beginning');
 ```
 
-### Statistics & Analytics
-```dart
-// Built-in statistics
-print('Bible stats: ${bible.stats}');
-// BibleStats(books: 66, chapters: 1189, verses: 31102, words: 835473)
-
-print('Genesis stats: ${genesis.stats}');
-// BookStats(chapters: 50, verses: 1533, words: 38302)
-```
-
-## 🔍 Advanced Search
+Use `searchAdvanced()` when you need explicit search behavior:
 
 ```dart
-// Advanced search with filtering
-final results = bible.searchAdvanced(
-  text: 'God',
-  mode: SearchMode.exact,       // exact phrase; use all/any for term search
-  book: BibleBookEnum.genesis,  // Filter by book
-  caseSensitive: false,
-  wholeWords: true,
+final exactPhrase = bible.searchAdvanced(
+  text: 'in the beginning',
+  mode: SearchMode.exact,
+);
+
+final allTerms = bible.searchAdvanced(
+  text: 'faith hope',
+  mode: SearchMode.all,
+);
+
+final anyTerm = bible.searchAdvanced(
+  text: 'faith hope',
+  mode: SearchMode.any,
   maxResults: 20,
 );
+```
 
-// Group results by book
-final byBook = results.byBook;
-for (final entry in byBook.entries) {
-  print('${entry.key.fullName}: ${entry.value.length} verses');
+Advanced search also supports scope filters and whole-word matching:
+
+```dart
+final results = bible.searchAdvanced(
+  text: 'God',
+  mode: SearchMode.exact,
+  book: BibleBookEnum.genesis,
+  chapter: 1,
+  caseSensitive: false,
+  wholeWords: true,
+  maxResults: 10,
+);
+
+for (final verse in results.verses) {
+  print('${verse.book.fullName} ${verse.chapterNumber}:${verse.verseNumber} ${verse.text}');
 }
 ```
 
-## 🎯 Functional Programming
+For reusable search configuration, use `SearchOptions`:
 
 ```dart
-// Use iterables and functional patterns
-final allVerses = bible.allVerses;
-final longVerses = allVerses.where((v) => v.length > 200);
-final totalWords = allVerses.fold<int>(0, (sum, verse) => sum + verse.words.length);
-
-// Lazy evaluation with generators
-final genesisVerses = genesis.allVerses;
-final versesWithGod = genesisVerses.where((v) => v.containsWord('God'));
-```
-
-## 📊 Reference Parsing
-
-```dart
-// Parse references from strings
-final verse = bible.getVerseByRef('John 3:16');
-final verses = bible.getVerseRangeByRef('Genesis 1:1-3');
-
-// Safe parsing with Results
-final result = bible.getVerseByRefResult('Invalid Reference 1:1');
-result.fold(
-  (error) => print('Parse error: $error'),
-  (verse) => print('Found: ${verse.reference}'),
+final results = bible.searchWithOptions(
+  'love mercy',
+  const SearchOptions(
+    mode: SearchMode.all,
+    wholeWords: true,
+    maxResults: 25,
+  ),
 );
 ```
 
-## 🏗️ API Overview
+## Result-Based Helpers
 
-### Core Classes
-- **`Bible`**: Main container with async loading, operator overloading, and search
-- **`Book`**: Book-level operations with statistics and verse counting
-- **`Chapter`**: Chapter operations with verse filtering
-- **`Verse`**: Individual verses with text analysis and reference formatting
+```dart
+final result = bible.getVerseResult(BibleBookEnum.genesis, 1, 1);
 
-### Result Types
-- **`Result<T>`**: Functional error handling (Success/Failure)
-- **`SearchResults`**: Search results with grouping and metadata
-- **`*Stats`**: Statistics classes for Bible, Book, Chapter, and Verse
+switch (result) {
+  case Success(value: final verse):
+    print(verse.text);
+  case Failure(error: final error):
+    print(error);
+}
+```
 
-### Extension Methods
-- **`BibleExtensions`**: Fluent Bible operations
-- **`BookExtensions`**: Book analysis and filtering
-- **`ChapterExtensions`**: Chapter operations
-- **`VerseExtensions`**: Verse utilities and formatting
+## Statistics
 
-## 📋 JSON Format
+```dart
+print(bible.stats);
+print(bible.getBook(BibleBookEnum.genesis).stats);
+print(bible.getChapter(BibleBookEnum.genesis, 1).stats);
+```
 
-The package expects Bible data in this JSON structure:
+## JSON Format
+
+The package expects Bible data in this structure:
 
 ```json
 {
@@ -167,61 +152,41 @@ The package expects Bible data in this JSON structure:
 }
 ```
 
-## 🔧 Migration from Legacy API
-
-### Old Way
-```dart
-// Synchronous loading with exceptions
-final bible = Bible('path/to/bible.json');
-final verse = bible.getVerse(BibleBookEnum.genesis, 1, 1); // Throws!
-```
-
-### New Way
-```dart
-// Async loading with Result types
-final bible = await Bible.load('path/to/bible.json');
-final result = bible.getVerseResult(BibleBookEnum.genesis, 1, 1);
-final verse = result.value; // Safe!
-```
-
-## 📈 Performance Features
-
-- **Lazy Search Index**: Built on-demand, invalidated when needed
-- **Iterable Generators**: Memory-efficient verse iteration
-- **Functional Operations**: Chainable without intermediate collections
-- **Async Loading**: Non-blocking file I/O
-
-## 🧪 Testing
+## Testing
 
 ```bash
 dart test
 ```
 
-All tests pass with comprehensive coverage of modern Dart features.
-
-## 📖 Examples
-
-See `lib/bible_example.dart` for a complete showcase of all modern Dart features in action.
-
----
-
-**Made with ❤️ and modern Dart**
+If you are using the Flutter SDK's bundled Dart executable:
 
 ```bash
-dart run bin/package.dart <path_to_bible_json>
+flutter test
 ```
 
-## Running Tests
+## Publishing
+
+Before publishing, verify the package:
 
 ```bash
-dart test
+dart pub publish --dry-run
 ```
 
-## Dependencies
+Publish to pub.dev:
 
-This example depends on the `bible_io_references` package from pub.dev:
+```bash
+dart pub publish
+```
 
-```yaml
-dependencies:
-  bible_io_references: ^1.0.0
+If you are using Flutter's bundled Dart toolchain, these equivalents also work:
+
+```bash
+flutter pub publish --dry-run
+flutter pub publish
+```
+
+## Example
+
+```bash
+dart run bin/package.dart path/to/bible.json
 ```
