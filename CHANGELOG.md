@@ -2,6 +2,19 @@
 
 ### Added
 
+- Version 1 of the Bible content contract, with an explicit `schemaVersion`,
+  deterministic `bookOrder`, stable edition IDs, and lossless JSON-compatible
+  annotations on Bible, book, chapter, verse, and metadata values
+- Strict, path-aware decoded-content validation through
+  `BibleDataFormatError`, plus an explicit permissive policy for intentionally
+  skeletal data
+- Background JSON processing where isolates are available, structured
+  reading/processing/completion progress, and eager, lazy, or disabled search
+  index policies
+- Edition-aware `BibleVerseKey` values and JSON-restorable `BibleLocation`
+  values for bookmarks, highlights, notes, and reading progress
+- Result pagination metadata, snippet-relative highlight ranges, and explicit
+  snippet bounds for UI search rendering
 - Platform-neutral loading from Flutter-style asset bundles, UTF-8 bytes,
   decoded JSON maps, and JSON strings, while retaining asynchronous file
   loading on `dart:io` platforms
@@ -17,6 +30,17 @@
 
 ### Changed
 
+- Legacy data without `bookOrder` now falls back to canonical book order rather
+  than JSON map insertion order; chapter and verse ordering follows declared
+  numeric identifiers
+- Search now applies canonical Unicode normalization by default, offers
+  opt-in diacritic folding, and supports substrings in Chinese, Japanese, Thai,
+  Lao, Khmer, and Myanmar text that does not delimit every word with spaces
+- Search index construction is configurable for startup latency and memory,
+  search/page collection stops without constructing discarded hit objects,
+  and lazy indexes can be prewarmed asynchronously on isolate-capable targets
+- Catalog source IDs are validated and indexed as unique edition identities;
+  unknown metadata fields and nested source provenance survive round trips
 - Book, chapter, verse, search-result, catalog-result, and passage-result
   collections are defensively copied and exposed as immutable values
 - Chapter and verse access now uses declared numbers instead of list offsets,
@@ -29,11 +53,31 @@
   Unicode scalar-aware edit distances
 - Internal imports and the public re-export now use the conventional
   `bible_io_references.dart` entry point
+- The minimum Dart SDK was widened from 3.10.7 to 3.4.0 after removing
+  unnecessary newer-language syntax and adding minimum-SDK CI coverage
 - Direct and transitive dependencies were refreshed to their latest resolvable
   versions
 
 ### Fixed
 
+- Canonically equivalent NFC/NFD text now matches consistently, while match
+  ranges continue to point into the original UTF-16 verse text
+- Cropped snippets now expose their origin and snippet-relative ranges, and
+  avoid splitting grapheme clusters
+- All/any indexed search no longer misses query substrings in commonly
+  unspaced writing systems
+- Fuzzy search now applies the same unspaced-script substring behavior and
+  consistently rejects negative result limits
+- Malformed Bible JSON now reports stable typed errors and precise paths
+  instead of leaking `TypeError`, cast, or integer parsing failures
+- Translation identity, description, custom annotation fields, and explicit
+  canon order are no longer lost during serialization
+- Parsed cross-book ranges now honor an edition's explicit non-default book
+  order, and conflicting loaded book aliases are rejected as ambiguous
+- Unknown nested `BibleSource` fields stay nested instead of being flattened
+  into metadata or lost on key collisions
+- Public model lists and annotation trees can no longer be mutated through
+  shared references
 - Bible metadata now preserves nested source information across JSON
   round-trips
 - Nested language catalog maps no longer create bogus source entries
@@ -47,6 +91,12 @@
 
 ### Documentation and tests
 
+- Documented the version 1 content schema, migration path, edition-aware UI
+  state, validation policies, search normalization, and index lifecycle
+- Clarified the intentional `AGPL-3.0-or-later` code license and the independent
+  copyright and licensing requirements of Bible translation content
+- Added CI checks for formatting, analysis, tests, coverage, web compilation,
+  and the pub.dev archive
 - Expanded the README with platform-neutral loading, catalogs, metadata,
   multilingual parsing, rich passages, OSIS/USFM, locations, and search-hit
   examples
@@ -58,11 +108,12 @@
 - Deprecated the legacy `lib/bible_example.dart` entry point; it remains
   available for compatibility and will be removed in a future major release
 
-### Compatibility note
+### Bug-fix note
 
-- Public model collections are now unmodifiable. Code that previously mutated
-  `Bible.books`, `Book.chapters`, or `Chapter.verses` should construct a new
-  model graph instead.
+- Public model collections were always intended to be immutable. The exposed
+  mutation paths were fixed; derive changed values with constructors or
+  `copyWith()` rather than mutating `Bible.books`, `Book.chapters`, or
+  `Chapter.verses`.
 
 ## 1.0.1 - 2026-04-25
 

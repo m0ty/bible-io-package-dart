@@ -2,6 +2,7 @@ import 'package:bible_io_references/bible_io_references.dart';
 
 import 'chapter.dart';
 import 'errors.dart';
+import 'json_value.dart';
 import 'verse.dart';
 
 /// Container for chapters belonging to a single Bible book.
@@ -9,11 +10,24 @@ class Book {
   final BibleBookEnum bookEnum;
   final String name;
   final List<Chapter> chapters;
+
+  /// Extensible, deeply immutable JSON-compatible book metadata.
+  final Map<String, Object?> annotations;
+
   late final Map<int, Chapter> _chaptersByNumber;
 
-  Book(this.bookEnum, List<Chapter> chapters, {String? name})
-    : name = name ?? bookEnum.fullName,
-      chapters = _prepareChapters(bookEnum, chapters) {
+  Book(
+    this.bookEnum,
+    List<Chapter> chapters, {
+    String? name,
+    Map<String, Object?> annotations = const {},
+  })  : name = _prepareName(name ?? bookEnum.fullName),
+        chapters = _prepareChapters(bookEnum, chapters),
+        annotations = freezeJsonMap(
+          annotations,
+          reservedKeys: const {'name', 'chapters'},
+          parameterName: 'annotations',
+        ) {
     _chaptersByNumber = Map<int, Chapter>.unmodifiable({
       for (final chapter in this.chapters) chapter.chapterNumber: chapter,
     });
@@ -56,6 +70,13 @@ class Book {
     return List<Chapter>.unmodifiable(sortedChapters);
   }
 
+  static String _prepareName(String name) {
+    if (name.trim().isEmpty) {
+      throw ArgumentError.value(name, 'name', 'must not be blank');
+    }
+    return name;
+  }
+
   /// Return the chapters that belong to this book.
   List<Chapter> getChapters() {
     return chapters;
@@ -86,11 +107,57 @@ class Book {
     for (final chapter in chapters) {
       matches.addAll(chapter.search(word));
     }
-    return matches;
+    return List<Verse>.unmodifiable(matches);
   }
+
+  /// Creates a validated, immutable copy of this book.
+  ///
+  /// Changing [bookEnum] also requires supplying chapters belonging to the
+  /// new book.
+  Book copyWith({
+    BibleBookEnum? bookEnum,
+    String? name,
+    List<Chapter>? chapters,
+    Map<String, Object?>? annotations,
+  }) {
+    return Book(
+      bookEnum ?? this.bookEnum,
+      chapters ?? this.chapters,
+      name: name ?? this.name,
+      annotations: annotations ?? this.annotations,
+    );
+  }
+
+  /// Encodes this book and its annotations as a JSON-compatible object.
+  Map<String, Object?> toJsonValue() => Map<String, Object?>.unmodifiable({
+        ...annotations,
+        'name': name,
+        'chapters': Map<String, Object?>.unmodifiable({
+          for (final chapter in chapters)
+            chapter.chapterNumber.toString(): chapter.toJsonValue(),
+        }),
+      });
 
   @override
   String toString() {
     return 'Book(${bookEnum.abbreviation}: $name)';
   }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is Book &&
+            other.bookEnum == bookEnum &&
+            other.name == name &&
+            jsonValueEquals(other.chapters, chapters) &&
+            jsonValueEquals(other.annotations, annotations);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+        bookEnum,
+        name,
+        jsonValueHash(chapters),
+        jsonValueHash(annotations),
+      );
 }

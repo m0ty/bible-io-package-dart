@@ -51,6 +51,7 @@ void main() {
     test('finds non-English terms', () {
       expect(bible.search('الله').map((v) => v.verseNumber), [1]);
       expect(bible.search('Бог').map((v) => v.verseNumber), [2]);
+      expect(bible.search('创造').map((v) => v.verseNumber), [3]);
       expect(
         bible.searchAdvanced(text: 'الله').verses.map((v) => v.verseNumber),
         [1],
@@ -76,6 +77,37 @@ void main() {
             .verses
             .map((v) => v.verseNumber),
         [4],
+      );
+    });
+
+    test('matches canonical forms and maps ranges to original text', () {
+      final results = bible.searchAdvanced(text: 'CAFÉ');
+
+      expect(results.verses.map((verse) => verse.verseNumber), [9]);
+      final hit = results.hits.single;
+      final range = hit.matchRanges.single;
+      expect(hit.verse.text.substring(range.start, range.end), 'Cafe\u0301');
+      expect(
+        hit.snippet.substring(
+          hit.snippetMatchRanges.single.start,
+          hit.snippetMatchRanges.single.end,
+        ),
+        'Cafe\u0301',
+      );
+      expect(bible.search('café').map((verse) => verse.verseNumber), [9]);
+      expect(
+        bible
+            .searchAdvanced(text: 'cafe')
+            .verses
+            .map((verse) => verse.verseNumber),
+        isEmpty,
+      );
+      expect(
+        bible
+            .searchAdvanced(text: 'cafe', ignoreDiacritics: true)
+            .verses
+            .map((verse) => verse.verseNumber),
+        [9],
       );
     });
 
@@ -144,9 +176,8 @@ void main() {
     test(
       'search remains an all-terms search and differs from exact phrases',
       () {
-        final searchResults = bible
-            .search('alpha beta')
-            .map((v) => v.verseNumber);
+        final searchResults =
+            bible.search('alpha beta').map((v) => v.verseNumber);
         final exactResults = bible
             .searchAdvanced(text: 'alpha beta')
             .verses
@@ -175,7 +206,7 @@ void main() {
     test('SearchOptions can drive the canonical advanced search path', () {
       final results = bible.searchWithOptions(
         'alpha beta',
-        const SearchOptions(mode: SearchMode.all, maxResults: 1),
+        SearchOptions(mode: SearchMode.all, maxResults: 1),
       );
 
       expect(results.verses.map((v) => v.verseNumber), [1]);
@@ -200,6 +231,7 @@ Bible _unicodeBible() {
               '6': 'Слово, мир и словообразование.',
               '7': 'мировой порядок',
               '8': 'A scatter pattern.',
+              '9': 'Cafe\u0301 grace.',
             },
           },
         },

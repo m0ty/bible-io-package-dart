@@ -6,135 +6,34 @@ library;
 
 import 'package:bible_io/bible_io.dart';
 
-/// Example usage of bible_io package showcasing modern Dart features.
-Future<void> bibleExample() async {
-  print('🚀 Loading Bible with progress tracking...');
+/// Small compatibility example retained for callers of the former library.
+///
+/// New package examples belong under `example/`; see
+/// `example/bible_io_example.dart` for the maintained entry point.
+Future<void> bibleExample() {
+  final bible = Bible.fromDecodedJson({
+    'schemaVersion': 1,
+    'language': 'English',
+    'metadata': {
+      'id': 'eng-example-1',
+      'translationName': 'Example Translation',
+      'abbreviation': 'EXT',
+      'languageCode': 'en',
+    },
+    'bookOrder': ['jo'],
+    'books': {
+      'jo': {
+        'name': 'John',
+        'chapters': {
+          '3': {'16': 'For God so loved the world...'},
+        },
+      },
+    },
+  });
 
-  // 1. ASYNC LOADING with progress (Modern Dart)
-  final bible = await Bible.load(
-    'test/bible_versions/en_kjv.json',
-    onProgress: (progress) => print('📖 Loading: ${(progress * 100).round()}%'),
-  );
-
-  print('✅ Bible loaded! Performance: ${bible.performanceMetrics}');
-
-  // 2. FUZZY SEARCH (New feature!)
-  print('\n🔍 Fuzzy search for "begnning" (typo):');
-  final fuzzyResults = bible.fuzzySearch(
-    'begnning',
-    maxDistance: 2,
-    maxResults: 3,
-  );
-  print('Found ${fuzzyResults.verses.length} verses with fuzzy match');
-
-  // 3. JSON EXPORT (New feature!)
-  print('\n💾 Exporting Bible to JSON...');
-  final jsonExport = bible.toJson();
-  print('📄 Exported ${jsonExport.length} characters of JSON');
-
-  // 4. OPERATOR OVERLOADING (Dart-like syntax)
-  final genesis = bible[BibleBookEnum.genesis] as Book; // bible[book]
-  print('Genesis has ${genesis.chapters.length} chapters');
-  final chapter1 =
-      bible[(BibleBookEnum.genesis, 1)] as Chapter; // bible[(book, chapter)]
-  print('Chapter 1 has ${chapter1.verses.length} verses');
-  final verse =
-      bible[(BibleBookEnum.genesis, 1, 1)]
-          as Verse; // bible[(book, chapter, verse)]
-
-  // 5. RESULT TYPES (Functional error handling)
-  final result = bible.getVerseResult(BibleBookEnum.genesis, 1, 1);
-  if (result.isSuccess) {
-    print('Verse: ${result.value.text}');
-  } else {
-    print('Error: ${result.error}');
-  }
-
-  // 4. EXTENSION METHODS (Fluent API)
-  final searchResults = bible.searchAdvanced(
-    text: 'God',
-    wholeWords: true,
-    maxResults: 10,
-  );
-  print('Found ${searchResults.count} verses containing "God"');
-
-  // 5. RECORDS AND MODERN TYPES
-  final reference = (book: BibleBookEnum.genesis, chapter: 1, verse: 1);
-  print('Reference record: $reference');
-
-  // 6. FUNCTIONAL PROGRAMMING
-  final allVerses = bible.allVerses;
-  final longVerses = allVerses.where((v) => v.length > 200);
-  final wordCount = allVerses.fold<int>(
-    0,
-    (sum, verse) => sum + verse.words.length,
-  );
-  print(
-    'Long verses count: ${longVerses.length}, total word count: $wordCount',
-  );
-
-  // 7. NULL SAFETY
-  final safeVerse = bible.verseOrNull('Genesis 1:1');
-  final safeVerses = bible.versesOrNull('Genesis 1:1-3');
-  print(
-    'safeVerse: ${safeVerse?.text ?? 'not found'}, safeVerses count: ${safeVerses?.length ?? 0}',
-  );
-
-  // 8. STATISTICS AND ANALYTICS
-  print('Bible stats: ${bible.stats}');
-  print('Genesis stats: ${genesis.stats}');
-
-  // 9. ADVANCED SEARCH
-  final advancedSearch = bible.searchAdvanced(
-    text: 'love',
-    book: BibleBookEnum.john,
-    caseSensitive: false,
-    maxResults: 5,
-  );
-  print('Advanced search count: ${advancedSearch.count}');
-
-  // 10. GROUPING AND ANALYSIS
-  final byBook = searchResults.byBook;
-  for (final entry in byBook.entries) {
-    print('${entry.key.fullName}: ${entry.value.length} verses');
-  }
-
-  // 11. CHAINING OPERATIONS (Fluent)
-  final result2 = bible
-      .getVerseByRefResult('John 3:16')
-      .map((verse) => verse.text.toUpperCase())
-      .getOrElse('Verse not found');
-
-  print('John 3:16: $result2');
-
-  // 12. ITERABLES AND LAZY EVALUATION
-  final genesisVerses = bible.allVerses.where(
-    (v) => v.book == BibleBookEnum.genesis,
-  );
-  final versesWithGod = genesisVerses.where((v) => v.containsWord('God'));
-  print('Genesis verses containing God: ${versesWithGod.length}');
-
-  // 13. PATTERN MATCHING (Modern Dart)
-  final verseResult = bible.getVerseByRefResult('Genesis 1:1');
-  switch (verseResult) {
-    case Success(value: final v):
-      print('Success: ${v.shortReference}');
-    case Failure(error: final e):
-      print('Error: $e');
-  }
-
-  // 14. CONVENIENCE METHODS
-  final firstVerse = verse;
-  print('Reference: ${firstVerse.reference}');
-  print('Contains "beginning": ${firstVerse.containsWord('beginning')}');
-  print(
-    'Contains all ["God", "created"]: ${firstVerse.containsAll(['God', 'created'])}',
-  );
-
-  print('🎉 Bible IO example completed successfully!');
+  final verse = bible.getVerseByRef('John 3:16');
+  print('${verse.reference} - ${verse.text}');
+  return Future<void>.value();
 }
 
-/// Main function to run the example.
-Future<void> main() async {
-  await bibleExample();
-}
+Future<void> main() => bibleExample();

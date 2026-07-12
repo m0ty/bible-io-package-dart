@@ -188,7 +188,7 @@ void main() {
 Map<String, dynamic> _minimalBibleJson({Map<String, dynamic>? metadata}) {
   return {
     'language': 'English',
-    'metadata': ?metadata,
+    if (metadata != null) 'metadata': metadata,
     'books': {
       'gn': {
         'name': 'Genesis',

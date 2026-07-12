@@ -5,14 +5,8 @@ import 'book.dart';
 import 'chapter.dart';
 import 'errors.dart';
 import 'search.dart';
+import 'text_search.dart';
 import 'verse.dart';
-
-final RegExp _unicodeWordPattern = RegExp(r'[\p{L}\p{M}\p{N}]+', unicode: true);
-
-List<String> _tokenizeWords(String text) => _unicodeWordPattern
-    .allMatches(text)
-    .map((match) => match.group(0)!)
-    .toList(growable: false);
 
 /// Extension methods for more fluent Bible API usage.
 extension BibleExtensions on Bible {
@@ -42,11 +36,22 @@ extension BibleExtensions on Bible {
     }
   }
 
-  /// Fuzzy search with Levenshtein distance.
+  /// Fuzzy search with bounded Unicode-scalar Levenshtein distance.
+  ///
+  /// [SearchMode.all] requires every distinct query term to match a verse
+  /// token, [SearchMode.any] requires one term, and [SearchMode.exact]
+  /// requires the fuzzy terms to occur consecutively in query order.
+  /// Canonically equivalent Unicode forms match by default. Diacritic folding
+  /// is opt-in because marks can be meaningful in Hebrew and Arabic.
   SearchResults fuzzySearch(
     String query, {
     int maxDistance = 2,
     int maxResults = 50,
+    int offset = 0,
+    SearchMode mode = SearchMode.all,
+    bool caseSensitive = false,
+    bool normalizeUnicode = true,
+    bool ignoreDiacritics = false,
   }) {
     if (maxDistance < 0) {
       throw ArgumentError.value(
@@ -55,60 +60,88 @@ extension BibleExtensions on Bible {
         'must be non-negative',
       );
     }
+    if (offset < 0) {
+      throw ArgumentError.value(offset, 'offset', 'must be non-negative');
+    }
+    if (maxResults < 0) {
+      throw ArgumentError.value(
+        maxResults,
+        'maxResults',
+        'must be non-negative',
+      );
+    }
 
     final hits = <SearchHit>[];
-    final queryLower = query.trim().toLowerCase();
-    if (queryLower.isEmpty || maxResults <= 0) {
-      return SearchResults.fromHits(query, hits);
+    final queryTokens = tokenizeSearchText(
+      query,
+      caseSensitive: caseSensitive,
+      normalizeUnicode: normalizeUnicode,
+      ignoreDiacritics: ignoreDiacritics,
+    )
+        .map(
+          (token) => _FuzzyTerm(token, token.runes.toList(growable: false)),
+        )
+        .toList(growable: false);
+    if (queryTokens.isEmpty) {
+      return SearchResults.fromHits(
+        query,
+        hits,
+        offset: offset,
+        limit: maxResults,
+        totalCount: 0,
+      );
     }
 
+    var skipped = 0;
+    var hasMore = false;
     for (final verse in allVerses) {
-      final words = _tokenizeWords(verse.text.toLowerCase());
-      for (final word in words) {
-        if (_levenshteinDistance(word, queryLower) <= maxDistance) {
-          hits.add(SearchHit(verse: verse, book: getBook(verse.book)));
-          break; // Only add verse once
-        }
+      final verseTokens = tokenizeSearchTextWithRanges(
+        verse.text,
+        caseSensitive: caseSensitive,
+        normalizeUnicode: normalizeUnicode,
+        ignoreDiacritics: ignoreDiacritics,
+      )
+          .map(
+            (token) => _FuzzyVerseToken(
+              token,
+              token.normalized.runes.toList(growable: false),
+            ),
+          )
+          .toList(growable: false);
+      final ranges = _fuzzyMatchRanges(
+        verseTokens,
+        queryTokens,
+        mode,
+        maxDistance,
+      );
+      if (ranges == null) {
+        continue;
       }
-      if (hits.length >= maxResults) break;
+      if (skipped < offset) {
+        skipped++;
+        continue;
+      }
+      if (hits.length >= maxResults) {
+        hasMore = true;
+        break;
+      }
+      hits.add(
+        SearchHit.withContext(
+          verse: verse,
+          book: getBook(verse.book),
+          matchRanges: ranges,
+        ),
+      );
     }
 
-    return SearchResults.fromHits(query, hits);
-  }
-
-  /// Calculate Levenshtein distance between two strings.
-  int _levenshteinDistance(String s1, String s2) {
-    if (s1 == s2) return 0;
-
-    final s1Runes = s1.runes.toList(growable: false);
-    final s2Runes = s2.runes.toList(growable: false);
-    if (s1Runes.isEmpty) return s2Runes.length;
-    if (s2Runes.isEmpty) return s1Runes.length;
-
-    final matrix = List.generate(
-      s1Runes.length + 1,
-      (i) => List.filled(s2Runes.length + 1, 0),
+    return SearchResults.fromHits(
+      query,
+      hits,
+      offset: offset,
+      limit: maxResults,
+      totalCount: hasMore ? null : skipped + hits.length,
+      hasMore: hasMore,
     );
-
-    for (var i = 0; i <= s1Runes.length; i++) {
-      matrix[i][0] = i;
-    }
-    for (var j = 0; j <= s2Runes.length; j++) {
-      matrix[0][j] = j;
-    }
-
-    for (var i = 1; i <= s1Runes.length; i++) {
-      for (var j = 1; j <= s2Runes.length; j++) {
-        final cost = s1Runes[i - 1] == s2Runes[j - 1] ? 0 : 1;
-        matrix[i][j] = [
-          matrix[i - 1][j] + 1, // deletion
-          matrix[i][j - 1] + 1, // insertion
-          matrix[i - 1][j - 1] + cost, // substitution
-        ].reduce((a, b) => a < b ? a : b);
-      }
-    }
-
-    return matrix[s1Runes.length][s2Runes.length];
   }
 
   /// Get all verses in a book.
@@ -125,15 +158,155 @@ extension BibleExtensions on Bible {
 
   /// Find books containing a specific word.
   List<Book> booksContaining(String word) {
-    return books
-        .where(
-          (book) => book.allVerses.any((verse) => verse.containsWord(word)),
-        )
-        .toList();
+    return List<Book>.unmodifiable(
+      books.where(
+        (book) => book.allVerses.any((verse) => verse.containsWord(word)),
+      ),
+    );
   }
 
   /// Get statistics about the Bible.
   BibleStats get stats => BibleStats._(this);
+}
+
+class _FuzzyTerm {
+  final String text;
+  final List<int> runes;
+
+  const _FuzzyTerm(this.text, this.runes);
+}
+
+class _FuzzyVerseToken {
+  final SearchTextToken token;
+  final List<int> runes;
+
+  const _FuzzyVerseToken(this.token, this.runes);
+}
+
+List<TextRange>? _fuzzyMatchRanges(
+  List<_FuzzyVerseToken> verseTokens,
+  List<_FuzzyTerm> queryTerms,
+  SearchMode mode,
+  int maxDistance,
+) {
+  if (verseTokens.isEmpty || queryTerms.isEmpty) {
+    return null;
+  }
+
+  bool isMatch(_FuzzyVerseToken verseToken, _FuzzyTerm queryTerm) {
+    if (areRuneSequencesWithinLevenshteinDistance(
+      verseToken.runes,
+      queryTerm.runes,
+      maxDistance,
+    )) {
+      return true;
+    }
+    if (!usesUnspacedWordBoundaries(queryTerm.text) ||
+        verseToken.runes.length <= queryTerm.runes.length) {
+      return false;
+    }
+
+    final minimumWindow = queryTerm.runes.length > maxDistance
+        ? queryTerm.runes.length - maxDistance
+        : 1;
+    final maximumWindow = queryTerm.runes.length + maxDistance;
+    for (var windowLength = minimumWindow;
+        windowLength <= maximumWindow &&
+            windowLength <= verseToken.runes.length;
+        windowLength++) {
+      for (var start = 0;
+          start <= verseToken.runes.length - windowLength;
+          start++) {
+        if (areRuneSequencesWithinLevenshteinDistance(
+          verseToken.runes.sublist(start, start + windowLength),
+          queryTerm.runes,
+          maxDistance,
+        )) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  switch (mode) {
+    case SearchMode.any:
+      final ranges = <TextRange>[];
+      for (final verseToken in verseTokens) {
+        if (queryTerms.any((queryTerm) => isMatch(verseToken, queryTerm))) {
+          ranges.add(verseToken.token.range);
+        }
+      }
+      return ranges.isEmpty ? null : _mergeFuzzyRanges(ranges);
+    case SearchMode.all:
+      final ranges = <TextRange>[];
+      final uniqueTerms = <String, _FuzzyTerm>{
+        for (final queryTerm in queryTerms) queryTerm.text: queryTerm,
+      };
+      for (final queryTerm in uniqueTerms.values) {
+        _FuzzyVerseToken? matchingToken;
+        for (final verseToken in verseTokens) {
+          if (isMatch(verseToken, queryTerm)) {
+            matchingToken = verseToken;
+            break;
+          }
+        }
+        if (matchingToken == null) {
+          return null;
+        }
+        ranges.add(matchingToken.token.range);
+      }
+      return _mergeFuzzyRanges(ranges);
+    case SearchMode.exact:
+      if (queryTerms.length > verseTokens.length) {
+        return null;
+      }
+      final ranges = <TextRange>[];
+      for (var start = 0;
+          start <= verseTokens.length - queryTerms.length;
+          start++) {
+        var matches = true;
+        for (var index = 0; index < queryTerms.length; index++) {
+          if (!isMatch(verseTokens[start + index], queryTerms[index])) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) {
+          ranges.add(
+            TextRange(
+              start: verseTokens[start].token.start,
+              end: verseTokens[start + queryTerms.length - 1].token.end,
+            ),
+          );
+        }
+      }
+      return ranges.isEmpty ? null : _mergeFuzzyRanges(ranges);
+  }
+}
+
+List<TextRange> _mergeFuzzyRanges(List<TextRange> ranges) {
+  ranges.sort((first, second) {
+    final startComparison = first.start.compareTo(second.start);
+    return startComparison != 0
+        ? startComparison
+        : first.end.compareTo(second.end);
+  });
+  final merged = <TextRange>[];
+  var current = ranges.first;
+  for (final next in ranges.skip(1)) {
+    if (next.start <= current.end) {
+      current = TextRange(
+        start: current.start,
+        end: next.end > current.end ? next.end : current.end,
+      );
+    } else {
+      merged.add(current);
+      current = next;
+    }
+  }
+  merged.add(current);
+  return List<TextRange>.unmodifiable(merged);
 }
 
 /// Extension methods for Book class.
@@ -151,7 +324,9 @@ extension BookExtensions on Book {
 
   /// Find chapters containing a specific word.
   List<Chapter> chaptersContaining(String word) {
-    return chapters.where((chapter) => chapter.containsWord(word)).toList();
+    return List<Chapter>.unmodifiable(
+      chapters.where((chapter) => chapter.containsWord(word)),
+    );
   }
 
   /// Get book statistics.
@@ -167,7 +342,9 @@ extension ChapterExtensions on Chapter {
 
   /// Get verses containing a specific word.
   List<Verse> versesContaining(String word) {
-    return verses.where((verse) => verse.containsWord(word)).toList();
+    return List<Verse>.unmodifiable(
+      verses.where((verse) => verse.containsWord(word)),
+    );
   }
 
   /// Get the reference string for this chapter.
@@ -197,7 +374,7 @@ extension VerseExtensions on Verse {
   }
 
   /// Get Unicode letter, mark, and number tokens in the verse.
-  List<String> get words => _tokenizeWords(text);
+  List<String> get words => extractUnicodeWords(text);
 
   /// Get the length of the verse text.
   int get length => text.length;
@@ -220,13 +397,13 @@ class BibleStats {
       bible.allVerses.fold(0, (sum, verse) => sum + verse.words.length);
   int get averageVerseLength => verseCount > 0
       ? (bible.allVerses.fold(0, (sum, verse) => sum + verse.length) /
-                verseCount)
-            .round()
+              verseCount)
+          .round()
       : 0;
 
   Map<BibleBookEnum, int> get versesPerBook => {
-    for (final book in bible.books) book.bookEnum: book.verseCount,
-  };
+        for (final book in bible.books) book.bookEnum: book.verseCount,
+      };
 
   @override
   String toString() =>
@@ -262,8 +439,8 @@ class ChapterStats {
       chapter.verses.fold(0, (sum, verse) => sum + verse.words.length);
   int get averageVerseLength => verseCount > 0
       ? (chapter.verses.fold(0, (sum, verse) => sum + verse.length) /
-                verseCount)
-            .round()
+              verseCount)
+          .round()
       : 0;
 
   @override

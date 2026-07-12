@@ -27,7 +27,18 @@ void main() {
     test('throws exception for invalid JSON', () async {
       final tempFile = File('${Directory.systemTemp.path}/invalid.json');
       tempFile.writeAsStringSync('invalid json');
-      expect(Bible.load(tempFile.path), throwsA(isA<FormatException>()));
+      expect(
+        Bible.load(tempFile.path),
+        throwsA(
+          isA<BibleDataFormatError>()
+              .having(
+                (error) => error.code,
+                'code',
+                BibleDataFormatErrorCode.invalidJson,
+              )
+              .having((error) => error.path, 'path', r'$'),
+        ),
+      );
       await Future.delayed(
         Duration(milliseconds: 100),
       ); // Allow async operation to complete
@@ -37,7 +48,18 @@ void main() {
     test('throws exception for malformed Bible JSON', () async {
       final tempFile = File('${Directory.systemTemp.path}/malformed.json');
       tempFile.writeAsStringSync('{"invalid": "structure"}');
-      expect(Bible.load(tempFile.path), throwsA(isA<TypeError>()));
+      expect(
+        Bible.load(tempFile.path),
+        throwsA(
+          isA<BibleDataFormatError>()
+              .having(
+                (error) => error.code,
+                'code',
+                BibleDataFormatErrorCode.missingField,
+              )
+              .having((error) => error.path, 'path', r'$.books'),
+        ),
+      );
       await Future.delayed(
         Duration(milliseconds: 100),
       ); // Allow async operation to complete

@@ -1,5 +1,5 @@
 name: bible_io
-description: A modern Dart package for loading and working with structured Bible text data, featuring async loading, operator overloading, functional error handling, and comprehensive search capabilities.
+description: Immutable, edition-aware Bible content and UI state for Dart, with validated JSON, multilingual references, navigation, metadata, and Unicode search.
 version: 1.1.0
 homepage: https://github.com/m0ty/bible-io-package-dart
 repository: https://github.com/m0ty/bible-io-package-dart
@@ -7,7 +7,7 @@ issue_tracker: https://github.com/m0ty/bible-io-package-dart/issues
 documentation: https://github.com/m0ty/bible-io-package-dart#readme
 
 environment:
-  sdk: ^3.10.7
+  sdk: '>=3.4.0 <4.0.0'
 
 topics:
   - bible
@@ -19,9 +19,11 @@ topics:
 # Add regular dependencies here.
 dependencies:
   bible_io_references: ^1.1.0
+  characters: ^1.4.1
+  unorm_dart: ^0.3.2
 
 dev_dependencies:
-  lints: ^6.0.0
-  test: ^1.31.2
+  lints: '>=4.0.0 <7.0.0'
+  test: ^1.25.2
   benchmark_harness: ^2.2.1
   coverage: ^1.15.1

@@ -92,11 +92,14 @@ void main() {
 
     test('auto-detects loaded aliases but keeps explicit language strict', () {
       final greekBible = Bible.fromBooks([
-        Book(BibleBookEnum.genesis, [
-          Chapter(BibleBookEnum.genesis, 1, const [
-            Verse(BibleBookEnum.genesis, 1, 1, 'Loaded alias'),
-          ]),
-        ], name: 'My Genesis'),
+        Book(
+            BibleBookEnum.genesis,
+            [
+              Chapter(BibleBookEnum.genesis, 1, const [
+                Verse(BibleBookEnum.genesis, 1, 1, 'Loaded alias'),
+              ]),
+            ],
+            name: 'My Genesis'),
       ], language: BibleLanguageEnum.greek);
 
       expect(greekBible.getVerseByRef('My Genesis 1:1').text, 'Loaded alias');

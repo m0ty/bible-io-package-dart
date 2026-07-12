@@ -1,0 +1,10 @@
+.agents/
+.codex/
+.dart_tool/
+build/
+coverage/
+docs/
+
+# Tests run from the repository and CI; omit the suite and its large fixture
+# from the consumer archive.
+test/

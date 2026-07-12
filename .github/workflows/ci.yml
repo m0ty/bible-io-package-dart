@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  minimum-sdk:
+    name: Dart 3.4 compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up minimum supported Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.4.0
+
+      - name: Resolve minimum-compatible dependencies
+        run: dart pub downgrade
+
+      - name: Analyze on the minimum SDK
+        run: dart analyze --fatal-infos
+
+      - name: Test on the minimum SDK
+        run: dart test
+
+  verify:
+    name: Format, analyze, test, and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed lib bin example test
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      - name: Test with coverage
+        run: dart test --coverage=coverage
+
+      - name: Build coverage report
+        run: >-
+          dart run coverage:format_coverage
+          --lcov
+          --in=coverage
+          --out=coverage/lcov.info
+          --report-on=lib
+
+      - name: Enforce coverage floor
+        shell: bash
+        run: |
+          covered=$(awk -F: '$1 == "LH" { total += $2 } END { print total + 0 }' coverage/lcov.info)
+          found=$(awk -F: '$1 == "LF" { total += $2 } END { print total + 0 }' coverage/lcov.info)
+          if [ "$found" -eq 0 ]; then
+            echo "No coverable library lines were reported."
+            exit 1
+          fi
+          percentage=$((100 * covered / found))
+          echo "Line coverage: ${covered}/${found} (${percentage}%)"
+          if [ "$percentage" -lt 70 ]; then
+            echo "Line coverage must remain at or above 70%."
+            exit 1
+          fi
+
+      - name: Compile platform-neutral example for the web
+        run: |
+          mkdir -p build/web
+          dart compile js example/bible_io_example.dart -o build/web/example.js
+
+      - name: Validate publish archive
+        run: dart pub publish --dry-run
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore

@@ -179,7 +179,15 @@ void main() {
             },
           },
         }),
-        throwsArgumentError,
+        throwsA(
+          isA<BibleDataFormatError>()
+              .having(
+                (error) => error.code,
+                'code',
+                BibleDataFormatErrorCode.invalidValue,
+              )
+              .having((error) => error.path, 'path', r'$.books.GEN'),
+        ),
       );
     });
   });

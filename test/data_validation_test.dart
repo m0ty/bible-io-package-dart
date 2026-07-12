@@ -55,9 +55,8 @@ void main() {
     test('Verse numbers are sequential within chapters', () {
       for (final book in bible.books) {
         for (final chapter in book.chapters) {
-          final verseNumbers = chapter.verses
-              .map((v) => v.verseNumber)
-              .toList();
+          final verseNumbers =
+              chapter.verses.map((v) => v.verseNumber).toList();
           for (int i = 0; i < verseNumbers.length - 1; i++) {
             expect(verseNumbers[i + 1], verseNumbers[i] + 1);
           }
