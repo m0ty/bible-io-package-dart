@@ -1,9 +1,18 @@
-import 'package:bible_io_references/package.dart';
+import 'package:bible_io_references/bible_io_references.dart';
 
 import 'bible.dart';
 import 'book.dart';
 import 'chapter.dart';
+import 'errors.dart';
+import 'search.dart';
 import 'verse.dart';
+
+final RegExp _unicodeWordPattern = RegExp(r'[\p{L}\p{M}\p{N}]+', unicode: true);
+
+List<String> _tokenizeWords(String text) => _unicodeWordPattern
+    .allMatches(text)
+    .map((match) => match.group(0)!)
+    .toList(growable: false);
 
 /// Extension methods for more fluent Bible API usage.
 extension BibleExtensions on Bible {
@@ -11,7 +20,11 @@ extension BibleExtensions on Bible {
   Verse? verseOrNull(String reference) {
     try {
       return getVerseByRef(reference);
-    } catch (_) {
+    } on BibleError {
+      return null;
+    } on ParseVerseRefError {
+      return null;
+    } on ArgumentError {
       return null;
     }
   }
@@ -20,60 +33,82 @@ extension BibleExtensions on Bible {
   List<Verse>? versesOrNull(String reference) {
     try {
       return getVerseRangeByRef(reference);
-    } catch (_) {
+    } on BibleError {
+      return null;
+    } on ParseVerseRefError {
+      return null;
+    } on ArgumentError {
       return null;
     }
   }
 
   /// Fuzzy search with Levenshtein distance.
-  SearchResults fuzzySearch(String query, {
+  SearchResults fuzzySearch(
+    String query, {
     int maxDistance = 2,
     int maxResults = 50,
   }) {
-    final results = <Verse>[];
-    final queryLower = query.toLowerCase();
+    if (maxDistance < 0) {
+      throw ArgumentError.value(
+        maxDistance,
+        'maxDistance',
+        'must be non-negative',
+      );
+    }
+
+    final hits = <SearchHit>[];
+    final queryLower = query.trim().toLowerCase();
+    if (queryLower.isEmpty || maxResults <= 0) {
+      return SearchResults.fromHits(query, hits);
+    }
 
     for (final verse in allVerses) {
-      final words = verse.text.toLowerCase().split(RegExp(r'\W+'));
+      final words = _tokenizeWords(verse.text.toLowerCase());
       for (final word in words) {
         if (_levenshteinDistance(word, queryLower) <= maxDistance) {
-          results.add(verse);
+          hits.add(SearchHit(verse: verse, book: getBook(verse.book)));
           break; // Only add verse once
         }
       }
-      if (results.length >= maxResults) break;
+      if (hits.length >= maxResults) break;
     }
 
-    return SearchResults(query, results);
+    return SearchResults.fromHits(query, hits);
   }
 
   /// Calculate Levenshtein distance between two strings.
   int _levenshteinDistance(String s1, String s2) {
     if (s1 == s2) return 0;
-    if (s1.isEmpty) return s2.length;
-    if (s2.isEmpty) return s1.length;
 
-    final matrix = List.generate(s1.length + 1, (i) => List.filled(s2.length + 1, 0));
+    final s1Runes = s1.runes.toList(growable: false);
+    final s2Runes = s2.runes.toList(growable: false);
+    if (s1Runes.isEmpty) return s2Runes.length;
+    if (s2Runes.isEmpty) return s1Runes.length;
 
-    for (var i = 0; i <= s1.length; i++) {
+    final matrix = List.generate(
+      s1Runes.length + 1,
+      (i) => List.filled(s2Runes.length + 1, 0),
+    );
+
+    for (var i = 0; i <= s1Runes.length; i++) {
       matrix[i][0] = i;
     }
-    for (var j = 0; j <= s2.length; j++) {
+    for (var j = 0; j <= s2Runes.length; j++) {
       matrix[0][j] = j;
     }
 
-    for (var i = 1; i <= s1.length; i++) {
-      for (var j = 1; j <= s2.length; j++) {
-        final cost = s1[i - 1] == s2[j - 1] ? 0 : 1;
+    for (var i = 1; i <= s1Runes.length; i++) {
+      for (var j = 1; j <= s2Runes.length; j++) {
+        final cost = s1Runes[i - 1] == s2Runes[j - 1] ? 0 : 1;
         matrix[i][j] = [
-          matrix[i - 1][j] + 1,      // deletion
-          matrix[i][j - 1] + 1,      // insertion
+          matrix[i - 1][j] + 1, // deletion
+          matrix[i][j - 1] + 1, // insertion
           matrix[i - 1][j - 1] + cost, // substitution
         ].reduce((a, b) => a < b ? a : b);
       }
     }
 
-    return matrix[s1.length][s2.length];
+    return matrix[s1Runes.length][s2Runes.length];
   }
 
   /// Get all verses in a book.
@@ -90,7 +125,11 @@ extension BibleExtensions on Bible {
 
   /// Find books containing a specific word.
   List<Book> booksContaining(String word) {
-    return books.where((book) => book.allVerses.any((verse) => verse.containsWord(word))).toList();
+    return books
+        .where(
+          (book) => book.allVerses.any((verse) => verse.containsWord(word)),
+        )
+        .toList();
   }
 
   /// Get statistics about the Bible.
@@ -100,7 +139,8 @@ extension BibleExtensions on Bible {
 /// Extension methods for Book class.
 extension BookExtensions on Book {
   /// Get the number of verses in this book.
-  int get verseCount => chapters.fold(0, (sum, chapter) => sum + chapter.verses.length);
+  int get verseCount =>
+      chapters.fold(0, (sum, chapter) => sum + chapter.verses.length);
 
   /// Get all verses in this book.
   Iterable<Verse> get allVerses sync* {
@@ -143,7 +183,8 @@ extension VerseExtensions on Verse {
   String get reference => '${book.fullName} $chapterNumber:$verseNumber';
 
   /// Get the short reference string.
-  String get shortReference => '${book.abbreviation}$chapterNumber:$verseNumber';
+  String get shortReference =>
+      '${book.abbreviation}$chapterNumber:$verseNumber';
 
   /// Check if verse contains any of the words.
   bool containsAny(List<String> words) {
@@ -155,47 +196,14 @@ extension VerseExtensions on Verse {
     return words.every(containsWord);
   }
 
-  /// Get words in the verse (simple tokenization).
-  List<String> get words => text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  /// Get Unicode letter, mark, and number tokens in the verse.
+  List<String> get words => _tokenizeWords(text);
 
   /// Get the length of the verse text.
   int get length => text.length;
 
   /// Get verse statistics.
   VerseStats get stats => VerseStats._(this);
-}
-
-/// Search results with metadata.
-class SearchResults {
-  final String query;
-  final List<Verse> verses;
-
-  SearchResults(this.query, this.verses);
-
-  int get count => verses.length;
-
-  bool get isEmpty => verses.isEmpty;
-  bool get isNotEmpty => verses.isNotEmpty;
-
-  /// Group results by book.
-  Map<BibleBookEnum, List<Verse>> get byBook {
-    return verses.fold(<BibleBookEnum, List<Verse>>{}, (map, verse) {
-      map.putIfAbsent(verse.book, () => []).add(verse);
-      return map;
-    });
-  }
-
-  /// Group results by chapter.
-  Map<String, List<Verse>> get byChapter {
-    return verses.fold(<String, List<Verse>>{}, (map, verse) {
-      final key = '${verse.book.fullName} ${verse.chapterNumber}';
-      map.putIfAbsent(key, () => []).add(verse);
-      return map;
-    });
-  }
-
-  @override
-  String toString() => 'SearchResults(query: "$query", count: $count)';
 }
 
 /// Statistics about a Bible.
@@ -205,17 +213,24 @@ class BibleStats {
   BibleStats._(this.bible);
 
   int get bookCount => bible.books.length;
-  int get chapterCount => bible.books.fold(0, (sum, book) => sum + book.chapters.length);
+  int get chapterCount =>
+      bible.books.fold(0, (sum, book) => sum + book.chapters.length);
   int get verseCount => bible.allVerses.length;
-  int get totalWords => bible.allVerses.fold(0, (sum, verse) => sum + verse.words.length);
-  int get averageVerseLength => verseCount > 0 ? (bible.allVerses.fold(0, (sum, verse) => sum + verse.length) / verseCount).round() : 0;
+  int get totalWords =>
+      bible.allVerses.fold(0, (sum, verse) => sum + verse.words.length);
+  int get averageVerseLength => verseCount > 0
+      ? (bible.allVerses.fold(0, (sum, verse) => sum + verse.length) /
+                verseCount)
+            .round()
+      : 0;
 
   Map<BibleBookEnum, int> get versesPerBook => {
-    for (final book in bible.books) book.bookEnum: book.verseCount
+    for (final book in bible.books) book.bookEnum: book.verseCount,
   };
 
   @override
-  String toString() => 'BibleStats(books: $bookCount, chapters: $chapterCount, verses: $verseCount, words: $totalWords)';
+  String toString() =>
+      'BibleStats(books: $bookCount, chapters: $chapterCount, verses: $verseCount, words: $totalWords)';
 }
 
 /// Statistics about a Book.
@@ -226,11 +241,14 @@ class BookStats {
 
   int get chapterCount => book.chapters.length;
   int get verseCount => book.verseCount;
-  int get totalWords => book.allVerses.fold(0, (sum, verse) => sum + verse.words.length);
-  double get averageVersesPerChapter => chapterCount > 0 ? verseCount / chapterCount : 0;
+  int get totalWords =>
+      book.allVerses.fold(0, (sum, verse) => sum + verse.words.length);
+  double get averageVersesPerChapter =>
+      chapterCount > 0 ? verseCount / chapterCount : 0;
 
   @override
-  String toString() => 'BookStats(chapters: $chapterCount, verses: $verseCount, words: $totalWords)';
+  String toString() =>
+      'BookStats(chapters: $chapterCount, verses: $verseCount, words: $totalWords)';
 }
 
 /// Statistics about a Chapter.
@@ -240,8 +258,13 @@ class ChapterStats {
   ChapterStats._(this.chapter);
 
   int get verseCount => chapter.verses.length;
-  int get totalWords => chapter.verses.fold(0, (sum, verse) => sum + verse.words.length);
-  int get averageVerseLength => verseCount > 0 ? (chapter.verses.fold(0, (sum, verse) => sum + verse.length) / verseCount).round() : 0;
+  int get totalWords =>
+      chapter.verses.fold(0, (sum, verse) => sum + verse.words.length);
+  int get averageVerseLength => verseCount > 0
+      ? (chapter.verses.fold(0, (sum, verse) => sum + verse.length) /
+                verseCount)
+            .round()
+      : 0;
 
   @override
   String toString() => 'ChapterStats(verses: $verseCount, words: $totalWords)';
@@ -255,8 +278,18 @@ class VerseStats {
 
   int get wordCount => verse.words.length;
   int get characterCount => verse.length;
-  double get averageWordLength => wordCount > 0 ? characterCount / wordCount : 0;
+  double get averageWordLength {
+    final words = verse.words;
+    if (words.isEmpty) return 0;
+
+    final characterCount = words.fold<int>(
+      0,
+      (sum, word) => sum + word.runes.length,
+    );
+    return characterCount / words.length;
+  }
 
   @override
-  String toString() => 'VerseStats(words: $wordCount, characters: $characterCount)';
+  String toString() =>
+      'VerseStats(words: $wordCount, characters: $characterCount)';
 }

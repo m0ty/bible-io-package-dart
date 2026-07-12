@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 void main() {
   late Bible bible;
 
-  setUp(() async {
+  setUpAll(() async {
     // Use the real KJV Bible JSON file for testing
     bible = await Bible.load('test/bible_versions/en_kjv.json');
   });
@@ -35,7 +35,10 @@ void main() {
 
     test('books property returns all books', () {
       expect(bible.books.length, 66);
-      expect(bible.books.map((b) => b.name), containsAll(['Genesis', 'Exodus', 'John', 'Revelation']));
+      expect(
+        bible.books.map((b) => b.name),
+        containsAll(['Genesis', 'Exodus', 'John', 'Revelation']),
+      );
     });
   });
 }

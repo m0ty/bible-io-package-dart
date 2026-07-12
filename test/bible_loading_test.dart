@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 void main() {
   late Bible bible;
 
-  setUp(() async {
+  setUpAll(() async {
     // Use the real KJV Bible JSON file for testing
     bible = await Bible.load('test/bible_versions/en_kjv.json');
   });
@@ -18,14 +18,19 @@ void main() {
     });
 
     test('throws exception for non-existent file', () async {
-      expect(Bible.load('/non/existent/file.json'), throwsA(isA<FileSystemException>()));
+      expect(
+        Bible.load('/non/existent/file.json'),
+        throwsA(isA<FileSystemException>()),
+      );
     });
 
     test('throws exception for invalid JSON', () async {
       final tempFile = File('${Directory.systemTemp.path}/invalid.json');
       tempFile.writeAsStringSync('invalid json');
       expect(Bible.load(tempFile.path), throwsA(isA<FormatException>()));
-      await Future.delayed(Duration(milliseconds: 100)); // Allow async operation to complete
+      await Future.delayed(
+        Duration(milliseconds: 100),
+      ); // Allow async operation to complete
       tempFile.deleteSync();
     });
 
@@ -33,7 +38,9 @@ void main() {
       final tempFile = File('${Directory.systemTemp.path}/malformed.json');
       tempFile.writeAsStringSync('{"invalid": "structure"}');
       expect(Bible.load(tempFile.path), throwsA(isA<TypeError>()));
-      await Future.delayed(Duration(milliseconds: 100)); // Allow async operation to complete
+      await Future.delayed(
+        Duration(milliseconds: 100),
+      ); // Allow async operation to complete
       tempFile.deleteSync();
     });
   });

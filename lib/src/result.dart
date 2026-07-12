@@ -16,36 +16,37 @@ sealed class Result<T> {
 
   /// Get the value if successful, otherwise throw.
   T get value => switch (this) {
-        Success(value: final v) => v,
-        Failure(error: final e) => throw ResultException(e),
-      };
+    Success(value: final v) => v,
+    Failure(error: final e) => throw ResultException(e),
+  };
 
   /// Get the error if failed, otherwise null.
   String? get error => switch (this) {
-        Success() => null,
-        Failure(error: final e) => e,
-      };
+    Success() => null,
+    Failure(error: final e) => e,
+  };
 
   /// Transform the value if successful.
   Result<U> map<U>(U Function(T) transform) => switch (this) {
-        Success(value: final v) => Result.success(transform(v)),
-        Failure(error: final e) => Result.failure(e),
-      };
+    Success(value: final v) => Result.success(transform(v)),
+    Failure(error: final e) => Result.failure(e),
+  };
 
   /// Transform the result with a function that can also fail.
   Result<U> flatMap<U>(Result<U> Function(T) transform) => switch (this) {
-        Success(value: final v) => transform(v),
-        Failure(error: final e) => Result.failure(e),
-      };
+    Success(value: final v) => transform(v),
+    Failure(error: final e) => Result.failure(e),
+  };
 
   /// Get the value or a default.
   T getOrElse(T defaultValue) => switch (this) {
-        Success(value: final v) => v,
-        Failure() => defaultValue,
-      };
+    Success(value: final v) => v,
+    Failure() => defaultValue,
+  };
 
   /// Handle both success and failure cases.
-  U fold<U>(U Function(String) onFailure, U Function(T) onSuccess) => switch (this) {
+  U fold<U>(U Function(String) onFailure, U Function(T) onSuccess) =>
+      switch (this) {
         Success(value: final v) => onSuccess(v),
         Failure(error: final e) => onFailure(e),
       };

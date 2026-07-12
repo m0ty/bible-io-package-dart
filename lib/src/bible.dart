@@ -1,47 +1,19 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:math' as math;
 
-import 'package:bible_io_references/package.dart';
+import 'package:bible_io_references/bible_io_references.dart';
 
+import 'bible_loader_stub.dart'
+    if (dart.library.io) 'bible_loader_io.dart'
+    as bible_loader;
 import 'book.dart';
 import 'chapter.dart';
 import 'errors.dart';
-import 'extensions.dart';
+import 'location.dart';
 import 'result.dart';
+import 'search.dart';
+import 'source.dart';
 import 'verse.dart';
-
-/// Search mode for advanced text queries.
-enum SearchMode {
-  /// Match any of the tokenized terms.
-  any,
-
-  /// Match all of the tokenized terms.
-  all,
-
-  /// Match the exact phrase.
-  exact,
-}
-
-/// Options controlling advanced Bible search behavior.
-class SearchOptions {
-  final SearchMode mode;
-  final bool caseSensitive;
-  final bool wholeWords;
-  final int? maxResults;
-  final BibleBookEnum? book;
-  final int? chapter;
-  final int? verse;
-
-  const SearchOptions({
-    this.mode = SearchMode.exact,
-    this.caseSensitive = false,
-    this.wholeWords = false,
-    this.maxResults,
-    this.book,
-    this.chapter,
-    this.verse,
-  });
-}
 
 /// Performance metrics for Bible operations.
 class BiblePerformanceMetrics {
@@ -67,9 +39,16 @@ class BiblePerformanceMetrics {
 class BibleInitializationData {
   final List<Book> books;
   final BibleLanguageEnum language;
+  final BibleMetadata metadata;
   final Map<String, List<Verse>>? searchIndex;
 
-  BibleInitializationData(this.books, this.language, {this.searchIndex});
+  BibleInitializationData(
+    List<Book> books,
+    this.language, {
+    BibleMetadata? metadata,
+    this.searchIndex,
+  }) : books = List.unmodifiable(books),
+       metadata = metadata ?? BibleMetadata(languageName: language.name);
 }
 
 /// In-memory representation of a Bible with indexing and search helpers.
@@ -78,20 +57,81 @@ class Bible {
     r'[\p{L}\p{M}\p{N}]+',
     unicode: true,
   );
+  static final Map<BibleLanguageEnum, ReferenceParser>
+  _referenceParsersByPreferredLanguage = {};
 
   final List<Book> books;
   final BibleLanguageEnum language;
+  final BibleMetadata metadata;
   late final Map<BibleBookEnum, Book> _booksByEnum;
   late final Map<String, List<Verse>> _searchIndex;
+  late final ReferenceParser referenceParser;
+  late final PassageParser passageParser;
   final DateTime _createdAt = DateTime.now();
   Duration? _loadTime;
 
   DateTime get createdAt => _createdAt;
 
-  Bible._(this.books, this.language, {Map<String, List<Verse>>? searchIndex}) {
+  Bible._(
+    List<Book> books,
+    this.language, {
+    BibleMetadata? metadata,
+    Map<String, List<Verse>>? searchIndex,
+  }) : books = List.unmodifiable(books),
+       metadata = metadata ?? BibleMetadata(languageName: language.name) {
     _booksByEnum = {for (final book in books) book.bookEnum: book};
+    if (_booksByEnum.length != books.length) {
+      throw ArgumentError('Bible books must have unique book identifiers.');
+    }
+
+    final aliases = {
+      for (final book in books)
+        if (book.name.trim().toLowerCase() !=
+            book.bookEnum.fullName.toLowerCase())
+          book.name: book.bookEnum,
+    };
+    final hasConcreteLanguage = language != BibleLanguageEnum.auto;
+    if (aliases.isEmpty) {
+      referenceParser = hasConcreteLanguage
+          ? _referenceParsersByPreferredLanguage.putIfAbsent(
+              language,
+              () => ReferenceParser(preferredLanguages: [language]),
+            )
+          : ReferenceParser.standard;
+    } else {
+      referenceParser = ReferenceParser(
+        aliases: hasConcreteLanguage ? const {} : aliases,
+        aliasesByLanguage: hasConcreteLanguage ? {language: aliases} : const {},
+        preferredLanguages: hasConcreteLanguage ? [language] : const [],
+      );
+    }
+    passageParser = PassageParser(referenceParser: referenceParser);
     _searchIndex = searchIndex ?? _buildSearchIndex();
   }
+
+  BibleSource? get source => metadata.source;
+
+  String? get languageName => metadata.languageName;
+
+  String? get languageCode => metadata.languageCode;
+
+  String? get translationName => metadata.translationName;
+
+  String? get abbreviation => metadata.abbreviation;
+
+  int? get year => metadata.year;
+
+  TextDirectionHint get textDirection => metadata.direction;
+
+  String? get sourceName => metadata.sourceName;
+
+  String? get copyright => metadata.copyright;
+
+  String? get license => metadata.license;
+
+  String? get canon => metadata.canon;
+
+  DateTime? get versionDate => metadata.versionDate;
 
   /// Get performance metrics for this Bible instance.
   BiblePerformanceMetrics get performanceMetrics => BiblePerformanceMetrics(
@@ -113,78 +153,109 @@ class Bible {
   static Future<Bible> load(
     String path, {
     void Function(double progress)? onProgress,
+    BibleSource? source,
   }) async {
-    final startTime = DateTime.now();
-
-    final file = File(path);
-    final fileSize = await file.length();
-    final buffer = StringBuffer();
-    final stringSink = StringConversionSink.withCallback(
-      (decoded) => buffer.write(decoded),
+    final stopwatch = Stopwatch()..start();
+    final jsonString = await bible_loader.loadBibleJson(
+      path,
+      onProgress: onProgress,
     );
-    final byteSink = utf8.decoder.startChunkedConversion(stringSink);
-    int bytesRead = 0;
+    final bible = Bible.fromJson(jsonString, source: source);
 
-    await for (final chunk in file.openRead()) {
-      byteSink.add(chunk);
-      bytesRead += chunk.length;
-      onProgress?.call(fileSize == 0 ? 1.0 : bytesRead / fileSize);
-    }
-    byteSink.close();
-
-    final jsonString = buffer.toString();
-    onProgress?.call(1.0); // Complete
-
-    final data = json.decode(jsonString) as Map<String, dynamic>;
-    final initializationData = _loadFromJson(data);
-    final bible = Bible._fromData(initializationData);
-
-    bible._loadTime = DateTime.now().difference(startTime);
+    bible._loadTime = stopwatch.elapsed;
     return bible;
   }
 
-  /// Load the Bible data from a JSON string.
-  factory Bible.fromJson(String jsonString) {
-    final data = json.decode(jsonString) as Map<String, dynamic>;
-    final initializationData = _loadFromJson(data);
+  /// Load Bible data from a Flutter-style asset bundle.
+  ///
+  /// The asset bundle is intentionally typed as dynamic so the core package
+  /// does not need to import Flutter. Pass `rootBundle` or another object with
+  /// a compatible `loadString(String key)` method.
+  static Future<Bible> loadAsset(
+    dynamic assetBundle,
+    String key, {
+    BibleSource? source,
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    final jsonString = await assetBundle.loadString(key) as String;
+    final bible = Bible.fromJson(jsonString, source: source);
+    bible._loadTime = stopwatch.elapsed;
+    return bible;
+  }
+
+  /// Load the Bible data from UTF-8 encoded JSON bytes.
+  factory Bible.fromUtf8Bytes(List<int> bytes, {BibleSource? source}) {
+    return Bible.fromJson(utf8.decode(bytes), source: source);
+  }
+
+  /// Load the Bible data from an already-decoded JSON map.
+  factory Bible.fromDecodedJson(
+    Map<String, dynamic> data, {
+    BibleSource? source,
+  }) {
+    final initializationData = _loadFromJson(data, source: source);
     return Bible._fromData(initializationData);
+  }
+
+  /// Load the Bible data from a JSON string.
+  factory Bible.fromJson(String jsonString, {BibleSource? source}) {
+    final data = json.decode(jsonString) as Map<String, dynamic>;
+    return Bible.fromDecodedJson(data, source: source);
   }
 
   /// Create a Bible from a list of books directly.
   factory Bible.fromBooks(
     List<Book> books, {
     BibleLanguageEnum language = BibleLanguageEnum.english,
+    BibleMetadata? metadata,
+    BibleSource? source,
   }) {
-    return Bible._(books, language);
+    return Bible._(
+      books,
+      language,
+      metadata:
+          metadata ??
+          BibleMetadata(
+            source: source,
+            languageName: source?.languageName ?? language.name,
+            languageCode: source?.languageCode,
+            translationName: source?.translationName,
+            abbreviation: source?.abbreviation,
+            year: source?.year,
+            direction: source?.direction ?? TextDirectionHint.auto,
+            sourceName: source?.sourceName,
+            copyright: source?.copyright,
+            license: source?.license,
+            canon: source?.canon,
+            versionDate: source?.versionDate,
+          ),
+    );
   }
 
   /// Create a Bible from initialization data.
   factory Bible._fromData(BibleInitializationData data) {
-    return Bible._(data.books, data.language, searchIndex: data.searchIndex);
+    return Bible._(
+      data.books,
+      data.language,
+      metadata: data.metadata,
+      searchIndex: data.searchIndex,
+    );
   }
 
-  static BibleInitializationData _loadFromJson(Map<String, dynamic> data) {
-    final rawLanguage = data['language'] as String?;
-    final language = rawLanguage != null
-        ? BibleLanguageEnum.fromStr(rawLanguage)
-        : BibleLanguageEnum.auto;
+  static BibleInitializationData _loadFromJson(
+    Map<String, dynamic> data, {
+    BibleSource? source,
+  }) {
+    final metadata = BibleMetadata.fromDecodedJson(data, source: source);
+    final language = _resolveBibleLanguage(data['language'], metadata);
 
     final booksData = data['books'] as Map<String, dynamic>;
     final books = <Book>[];
-    final searchIndex = <String, List<Verse>>{};
-
     for (final entry in booksData.entries) {
       final bookAbbr = entry.key;
       final bookData = entry.value as Map<String, dynamic>;
 
-      BibleBookEnum? bookEnum;
-      try {
-        bookEnum = BibleBookEnum.fromStr(bookAbbr);
-      } catch (e) {
-        throw ArgumentError(
-          'Unsupported Bible book abbreviation \'$bookAbbr\'',
-        );
-      }
+      final bookEnum = _parseBibleBookIdentifier(bookAbbr);
 
       final chaptersData = bookData['chapters'] as Map<String, dynamic>;
       final chapters = <Chapter>[];
@@ -199,11 +270,6 @@ class Bible {
           final verseText = verseEntry.value as String;
           final verse = Verse(bookEnum, chapterNumber, verseNumber, verseText);
           verses.add(verse);
-
-          final tokens = _tokenizeText(verseText);
-          for (final token in tokens.toSet()) {
-            searchIndex.putIfAbsent(token, () => []).add(verse);
-          }
         }
 
         chapters.add(Chapter(bookEnum, chapterNumber, verses));
@@ -213,7 +279,66 @@ class Bible {
       books.add(Book(bookEnum, chapters, name: bookName));
     }
 
-    return BibleInitializationData(books, language, searchIndex: searchIndex);
+    return BibleInitializationData(books, language, metadata: metadata);
+  }
+
+  static BibleBookEnum _parseBibleBookIdentifier(String identifier) {
+    try {
+      return BibleBookEnum.fromStr(identifier);
+    } on ParseBibleBookError {
+      // Try the interoperable identifiers added by bible_io_references 1.1.
+    }
+
+    for (final book in BibleBookEnum.values) {
+      if (book.fullName.toLowerCase() == identifier.trim().toLowerCase()) {
+        return book;
+      }
+    }
+
+    try {
+      return bibleBookFromOsisIdentifier(identifier);
+    } on ArgumentError {
+      // Continue with USFM before reporting one format-neutral error.
+    }
+    try {
+      return bibleBookFromUsfmIdentifier(identifier);
+    } on ArgumentError {
+      throw ArgumentError.value(
+        identifier,
+        'books',
+        'Unsupported Bible book identifier.',
+      );
+    }
+  }
+
+  static BibleLanguageEnum _resolveBibleLanguage(
+    Object? rawLanguage,
+    BibleMetadata metadata,
+  ) {
+    if (rawLanguage != null && rawLanguage is! String) {
+      throw ArgumentError.value(
+        rawLanguage,
+        'language',
+        'Bible language must be a string.',
+      );
+    }
+
+    final candidates = <String?>[
+      rawLanguage as String?,
+      metadata.languageCode,
+      metadata.languageName,
+    ];
+    for (final candidate in candidates) {
+      if (candidate == null || candidate.trim().isEmpty) {
+        continue;
+      }
+      try {
+        return BibleLanguageEnum.fromStr(candidate);
+      } on ArgumentError {
+        // Keep trying richer metadata before falling back to auto-detection.
+      }
+    }
+    return BibleLanguageEnum.auto;
   }
 
   /// Fetch a book by enumeration identifier.
@@ -233,7 +358,8 @@ class Bible {
     return books[bookNumber - 1];
   }
 
-  /// Convenient access using index operator: bible[book] or bible[(book, chapter)] or bible[(book, chapter, verse)]
+  /// Convenient access with `bible[book]`, `bible[(book, chapter)]`, or
+  /// `bible[(book, chapter, verse)]`.
   dynamic operator [](dynamic key) {
     if (key is BibleBookEnum) {
       return getBook(key);
@@ -274,80 +400,125 @@ class Bible {
     return book.getVerse(chapterNumber, verseNumber);
   }
 
+  /// Parse a verse reference using this edition's language and book names as
+  /// auto-detection preferences.
+  ///
+  /// Pass a concrete [inputLanguage] to restrict parsing to that language.
+  /// Omitting it (or passing [BibleLanguageEnum.auto]) keeps multilingual
+  /// detection enabled.
+  ParseResult<Reference> parseReference(
+    String input, {
+    BibleLanguageEnum? inputLanguage,
+  }) {
+    return referenceParser.parseResult(input, language: inputLanguage);
+  }
+
+  /// Parse a rich passage expression without throwing.
+  ParseResult<Passage> parsePassage(
+    String input, {
+    BibleLanguageEnum? inputLanguage,
+  }) {
+    return passageParser.parseResult(input, language: inputLanguage);
+  }
+
+  /// Resolve a typed single-verse reference against this edition.
+  Verse resolveVerseReference(VerseRef reference) {
+    return getVerse(reference.book, reference.chapter, reference.verse);
+  }
+
+  /// Resolve a typed reference into verses from this edition.
+  ///
+  /// Cross-book ranges follow the order of [books], allowing editions with a
+  /// canon order that differs from the dependency's default enum order.
+  List<Verse> resolveReference(Reference reference) {
+    if (reference is VerseRef) {
+      return List.unmodifiable([resolveVerseReference(reference)]);
+    }
+    if (reference is VerseRangeRef) {
+      return _resolveVerseRange(reference);
+    }
+    throw ArgumentError.value(reference, 'reference', 'Unsupported reference');
+  }
+
   /// Retrieve a single verse by VerseRef or reference string.
-  Verse getVerseByRef(dynamic verseRef) {
+  Verse getVerseByRef(dynamic verseRef, {BibleLanguageEnum? inputLanguage}) {
     if (verseRef is String) {
-      verseRef = Reference.parse(verseRef, language: language);
+      verseRef = referenceParser.parse(verseRef, language: inputLanguage);
     }
     if (verseRef is! VerseRef) {
       throw ArgumentError('verseRef must be a VerseRef or string.');
     }
-    return getVerse(verseRef.book, verseRef.chapter, verseRef.verse);
+    return resolveVerseReference(verseRef);
   }
 
   /// Retrieve a contiguous range of verses by VerseRangeRef or text.
-  List<Verse> getVerseRangeByRef(dynamic verseRangeRef) {
+  List<Verse> getVerseRangeByRef(
+    dynamic verseRangeRef, {
+    BibleLanguageEnum? inputLanguage,
+  }) {
     if (verseRangeRef is String) {
-      verseRangeRef = Reference.parse(verseRangeRef, language: language);
+      verseRangeRef = referenceParser.parse(
+        verseRangeRef,
+        language: inputLanguage,
+      );
     }
     if (verseRangeRef is! VerseRangeRef) {
       throw ArgumentError('verseRangeRef must be a VerseRangeRef or string.');
     }
 
+    return _resolveVerseRange(verseRangeRef);
+  }
+
+  List<Verse> _resolveVerseRange(VerseRangeRef verseRangeRef) {
     final start = verseRangeRef.start;
     final end = verseRangeRef.end;
+    final startBookIndex = _bookIndexOf(start.book);
+    final endBookIndex = _bookIndexOf(end.book);
 
-    if (start.book != end.book) {
-      throw ArgumentError('Verse ranges must stay within a single book.');
-    }
-    if ((start.chapter > end.chapter) ||
-        (start.chapter == end.chapter && start.verse > end.verse)) {
+    // Validate both endpoints before collecting any partial result.
+    resolveVerseReference(start);
+    resolveVerseReference(end);
+
+    if (startBookIndex > endBookIndex ||
+        (startBookIndex == endBookIndex &&
+            ((start.chapter > end.chapter) ||
+                (start.chapter == end.chapter && start.verse > end.verse)))) {
       throw ArgumentError('Verse range start must come before the end.');
     }
 
-    final book = getBook(start.book);
-    if (start.chapter == end.chapter) {
-      final chapterVerses = book.getVerses(start.chapter);
-      if (start.verse < 1 || start.verse > chapterVerses.length) {
-        throw VerseNotFoundError(start.book, start.chapter, start.verse);
-      }
-      if (end.verse < 1 || end.verse > chapterVerses.length) {
-        throw VerseNotFoundError(end.book, end.chapter, end.verse);
-      }
-      return chapterVerses.sublist(start.verse - 1, end.verse);
-    }
-
     final verses = <Verse>[];
-    final startChapterVerses = book.getVerses(start.chapter);
-    if (start.verse < 1 || start.verse > startChapterVerses.length) {
-      throw VerseNotFoundError(start.book, start.chapter, start.verse);
-    }
-    // Add verses from start.verse to end of start.chapter
-    verses.addAll(startChapterVerses.sublist(start.verse - 1));
-
-    // Add all verses from complete chapters in between
     for (
-      var chapterNumber = start.chapter + 1;
-      chapterNumber < end.chapter;
-      chapterNumber++
+      var bookIndex = startBookIndex;
+      bookIndex <= endBookIndex;
+      bookIndex++
     ) {
-      verses.addAll(book.getVerses(chapterNumber));
+      final book = books[bookIndex];
+      for (final chapter in book.chapters) {
+        for (final verse in chapter.verses) {
+          final beforeStart =
+              bookIndex == startBookIndex &&
+              (chapter.chapterNumber < start.chapter ||
+                  (chapter.chapterNumber == start.chapter &&
+                      verse.verseNumber < start.verse));
+          final afterEnd =
+              bookIndex == endBookIndex &&
+              (chapter.chapterNumber > end.chapter ||
+                  (chapter.chapterNumber == end.chapter &&
+                      verse.verseNumber > end.verse));
+          if (!beforeStart && !afterEnd) {
+            verses.add(verse);
+          }
+        }
+      }
     }
 
-    // Add verses from beginning of end.chapter up to end.verse
-    final endChapterVerses = book.getVerses(end.chapter);
-    if (end.verse < 1 || end.verse > endChapterVerses.length) {
-      throw VerseNotFoundError(end.book, end.chapter, end.verse);
-    }
-    verses.addAll(endChapterVerses.sublist(0, end.verse));
-
-    return verses;
+    return List.unmodifiable(verses);
   }
 
   /// Retrieve either a verse or verse range from a ref object or string.
-  dynamic getByRef(dynamic verseRef) {
+  dynamic getByRef(dynamic verseRef, {BibleLanguageEnum? inputLanguage}) {
     if (verseRef is String) {
-      verseRef = Reference.parse(verseRef, language: language);
+      verseRef = referenceParser.parse(verseRef, language: inputLanguage);
     }
 
     if (verseRef is VerseRef) {
@@ -362,13 +533,171 @@ class Bible {
     );
   }
 
+  /// Resolve a rich [Passage] value into an immutable, source-ordered list.
+  ///
+  /// Passage sequences and overlapping selections preserve duplicates because
+  /// they can carry meaning for callers presenting each requested segment.
+  List<Verse> resolvePassage(Passage passage) {
+    final verses = <Verse>[];
+    if (passage is BookPassage) {
+      final book = getBook(passage.book);
+      for (final chapter in book.chapters) {
+        verses.addAll(chapter.verses);
+      }
+    } else if (passage is ChapterPassage) {
+      final endChapter = passage.endChapter ?? passage.startChapter;
+      for (
+        var chapterNumber = passage.startChapter;
+        chapterNumber <= endChapter;
+        chapterNumber++
+      ) {
+        verses.addAll(getChapter(passage.book, chapterNumber).verses);
+      }
+    } else if (passage is VersePassage) {
+      for (final selection in passage.selections) {
+        verses.addAll(resolveReference(selection));
+      }
+    } else if (passage is PassageSequence) {
+      for (final child in passage.passages) {
+        verses.addAll(resolvePassage(child));
+      }
+    } else {
+      throw UnsupportedError(
+        'Unsupported passage type: ${passage.runtimeType}',
+      );
+    }
+    return List.unmodifiable(verses);
+  }
+
+  /// Parse and resolve a rich passage string, or resolve a typed passage or
+  /// narrow reference directly.
+  List<Verse> getPassage(Object passage, {BibleLanguageEnum? inputLanguage}) {
+    if (passage is String) {
+      return resolvePassage(
+        passageParser.parse(passage, language: inputLanguage),
+      );
+    }
+    if (passage is Passage) {
+      return resolvePassage(passage);
+    }
+    if (passage is Reference) {
+      return resolveReference(passage);
+    }
+    throw ArgumentError.value(
+      passage,
+      'passage',
+      'Must be a Passage, Reference, or reference string.',
+    );
+  }
+
   /// Retrieve a single chapter by book and chapter number.
   Chapter getChapter(BibleBookEnum bibleBook, int chapterNumber) {
     final book = getBook(bibleBook);
-    if (chapterNumber < 1 || chapterNumber > book.chapters.length) {
-      throw ChapterNotFoundError(book.bookEnum, chapterNumber);
+    return book.getChapter(chapterNumber);
+  }
+
+  /// Retrieve the chapter identified by a stable Bible location.
+  Chapter getChapterAt(BibleLocation location) {
+    return getChapter(location.book, location.chapter);
+  }
+
+  /// Retrieve the verse identified by a stable Bible location.
+  Verse getVerseAt(BibleLocation location) {
+    final verseNumber = location.verse;
+    if (verseNumber == null) {
+      throw ArgumentError('BibleLocation.verse is required.');
     }
-    return book.chapters[chapterNumber - 1];
+    return getVerse(location.book, location.chapter, verseNumber);
+  }
+
+  /// Whether this Bible contains the requested chapter or verse location.
+  bool containsReference(BibleLocation location) {
+    try {
+      if (location.verse == null) {
+        getChapterAt(location);
+      } else {
+        getVerseAt(location);
+      }
+      return true;
+    } on BibleError {
+      return false;
+    } on ArgumentError {
+      return false;
+    }
+  }
+
+  /// Return the next chapter location, or null when already at the end.
+  BibleLocation? nextChapter(BibleLocation current) {
+    final bookIndex = _bookIndexOf(current.book);
+    final book = books[bookIndex];
+    final chapterIndex = book.chapters.indexWhere(
+      (chapter) => chapter.chapterNumber == current.chapter,
+    );
+    if (chapterIndex == -1) {
+      throw ChapterNotFoundError(current.book, current.chapter);
+    }
+
+    if (chapterIndex + 1 < book.chapters.length) {
+      return BibleLocation(
+        book: current.book,
+        chapter: book.chapters[chapterIndex + 1].chapterNumber,
+      );
+    }
+
+    for (
+      var nextBookIndex = bookIndex + 1;
+      nextBookIndex < books.length;
+      nextBookIndex++
+    ) {
+      final nextBook = books[nextBookIndex];
+      if (nextBook.chapters.isNotEmpty) {
+        return BibleLocation(
+          book: nextBook.bookEnum,
+          chapter: nextBook.chapters.first.chapterNumber,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Return the previous chapter location, or null when already at the start.
+  BibleLocation? previousChapter(BibleLocation current) {
+    final bookIndex = _bookIndexOf(current.book);
+    final book = books[bookIndex];
+    final chapterIndex = book.chapters.indexWhere(
+      (chapter) => chapter.chapterNumber == current.chapter,
+    );
+    if (chapterIndex == -1) {
+      throw ChapterNotFoundError(current.book, current.chapter);
+    }
+
+    if (chapterIndex > 0) {
+      return BibleLocation(
+        book: current.book,
+        chapter: book.chapters[chapterIndex - 1].chapterNumber,
+      );
+    }
+
+    for (
+      var previousBookIndex = bookIndex - 1;
+      previousBookIndex >= 0;
+      previousBookIndex--
+    ) {
+      final previousBook = books[previousBookIndex];
+      if (previousBook.chapters.isNotEmpty) {
+        return BibleLocation(
+          book: previousBook.bookEnum,
+          chapter: previousBook.chapters.last.chapterNumber,
+        );
+      }
+    }
+    return null;
+  }
+
+  bool hasNextChapter(BibleLocation current) => nextChapter(current) != null;
+
+  bool hasPreviousChapter(BibleLocation current) {
+    return previousChapter(current) != null;
   }
 
   /// Search for verses containing all tokenized terms in [query].
@@ -427,8 +756,12 @@ class Bible {
     final matches = hasText
         ? candidates.where(_buildTextMatcher(text, options))
         : candidates;
+    final verses = _collectResults(matches, options.maxResults);
+    final hits = verses
+        .map((verse) => _buildSearchHit(verse, text, options, hasText: hasText))
+        .toList(growable: false);
 
-    return SearchResults(text, _collectResults(matches, options.maxResults));
+    return SearchResults.fromHits(text, hits);
   }
 
   /// Fetch a book by enumeration identifier (Result-based).
@@ -436,7 +769,7 @@ class Bible {
     try {
       return Result.success(getBook(book));
     } catch (e) {
-      return Result.failure(e.toString());
+      return Result.failure(_resultErrorMessage(e));
     }
   }
 
@@ -445,7 +778,7 @@ class Bible {
     try {
       return Result.success(getBookById(bookNumber));
     } catch (e) {
-      return Result.failure(e.toString());
+      return Result.failure(_resultErrorMessage(e));
     }
   }
 
@@ -458,26 +791,52 @@ class Bible {
     try {
       return Result.success(getVerse(bibleBook, chapterNumber, verseNumber));
     } catch (e) {
-      return Result.failure(e.toString());
+      return Result.failure(_resultErrorMessage(e));
     }
   }
 
   /// Retrieve a single verse by reference (Result-based).
-  Result<Verse> getVerseByRefResult(dynamic verseRef) {
+  Result<Verse> getVerseByRefResult(
+    dynamic verseRef, {
+    BibleLanguageEnum? inputLanguage,
+  }) {
     try {
-      return Result.success(getVerseByRef(verseRef));
+      return Result.success(
+        getVerseByRef(verseRef, inputLanguage: inputLanguage),
+      );
     } catch (e) {
-      return Result.failure(e.toString());
+      return Result.failure(_resultErrorMessage(e));
     }
   }
 
   /// Retrieve verses by range (Result-based).
-  Result<List<Verse>> getVerseRangeByRefResult(dynamic verseRangeRef) {
+  Result<List<Verse>> getVerseRangeByRefResult(
+    dynamic verseRangeRef, {
+    BibleLanguageEnum? inputLanguage,
+  }) {
     try {
-      return Result.success(getVerseRangeByRef(verseRangeRef));
+      return Result.success(
+        getVerseRangeByRef(verseRangeRef, inputLanguage: inputLanguage),
+      );
     } catch (e) {
-      return Result.failure(e.toString());
+      return Result.failure(_resultErrorMessage(e));
     }
+  }
+
+  /// Parse or resolve a rich passage without throwing (Result-based).
+  Result<List<Verse>> getPassageResult(
+    Object passage, {
+    BibleLanguageEnum? inputLanguage,
+  }) {
+    try {
+      return Result.success(getPassage(passage, inputLanguage: inputLanguage));
+    } catch (e) {
+      return Result.failure(_resultErrorMessage(e));
+    }
+  }
+
+  static String _resultErrorMessage(Object error) {
+    return error is BibleError ? error.message : error.toString();
   }
 
   Map<String, List<Verse>> _buildSearchIndex() {
@@ -612,6 +971,14 @@ class Bible {
     return true;
   }
 
+  int _bookIndexOf(BibleBookEnum book) {
+    final index = books.indexWhere((candidate) => candidate.bookEnum == book);
+    if (index == -1) {
+      throw BookNotFoundError(book, stackTrace: StackTrace.current);
+    }
+    return index;
+  }
+
   Iterable<Verse> _versesForScope(SearchOptions options) sync* {
     final bookFilter = options.book;
     if (bookFilter != null) {
@@ -634,25 +1001,36 @@ class Bible {
     int? verseNumber,
   ) sync* {
     if (chapterNumber != null) {
-      if (chapterNumber < 1 || chapterNumber > book.chapters.length) {
-        return;
-      }
-      final chapter = book.chapters[chapterNumber - 1];
-      if (verseNumber != null) {
-        if (verseNumber < 1 || verseNumber > chapter.verses.length) {
-          return;
+      Chapter? matchingChapter;
+      for (final chapter in book.chapters) {
+        if (chapter.chapterNumber == chapterNumber) {
+          matchingChapter = chapter;
+          break;
         }
-        yield chapter.verses[verseNumber - 1];
+      }
+      if (matchingChapter == null) {
         return;
       }
-      yield* chapter.verses;
+      if (verseNumber != null) {
+        for (final verse in matchingChapter.verses) {
+          if (verse.verseNumber == verseNumber) {
+            yield verse;
+            break;
+          }
+        }
+        return;
+      }
+      yield* matchingChapter.verses;
       return;
     }
 
     for (final chapter in book.chapters) {
       if (verseNumber != null) {
-        if (verseNumber >= 1 && verseNumber <= chapter.verses.length) {
-          yield chapter.verses[verseNumber - 1];
+        for (final verse in chapter.verses) {
+          if (verse.verseNumber == verseNumber) {
+            yield verse;
+            break;
+          }
         }
       } else {
         yield* chapter.verses;
@@ -677,13 +1055,12 @@ class Bible {
           );
         }
 
-        final needle = options.caseSensitive ? text : text.toLowerCase();
-        return (verse) {
-          final haystack = options.caseSensitive
-              ? verse.text
-              : verse.text.toLowerCase();
-          return haystack.contains(needle);
-        };
+        final pattern = RegExp(
+          RegExp.escape(text),
+          caseSensitive: options.caseSensitive,
+          unicode: true,
+        );
+        return (verse) => pattern.hasMatch(verse.text);
       case SearchMode.all:
         final queryTokens = _tokenizeText(
           text,
@@ -750,6 +1127,155 @@ class Bible {
     return results;
   }
 
+  SearchHit _buildSearchHit(
+    Verse verse,
+    String query,
+    SearchOptions options, {
+    required bool hasText,
+  }) {
+    final ranges = hasText
+        ? _buildMatchRanges(verse.text, query, options)
+        : const <TextRange>[];
+    return SearchHit(
+      verse: verse,
+      book: getBook(verse.book),
+      matchRanges: ranges,
+      snippet: _buildSnippet(verse.text, ranges),
+    );
+  }
+
+  static List<TextRange> _buildMatchRanges(
+    String text,
+    String query,
+    SearchOptions options,
+  ) {
+    switch (options.mode) {
+      case SearchMode.exact:
+        if (options.wholeWords) {
+          return _wholeWordPhraseRanges(text, query, options.caseSensitive);
+        }
+        return _substringRanges(text, query, options.caseSensitive);
+      case SearchMode.all:
+      case SearchMode.any:
+        return _tokenRanges(text, query, options.caseSensitive);
+    }
+  }
+
+  static List<TextRange> _substringRanges(
+    String text,
+    String query,
+    bool caseSensitive,
+  ) {
+    if (query.isEmpty) {
+      return const [];
+    }
+
+    final pattern = RegExp(
+      RegExp.escape(query),
+      caseSensitive: caseSensitive,
+      unicode: true,
+    );
+    return pattern
+        .allMatches(text)
+        .map((match) => TextRange(start: match.start, end: match.end))
+        .toList(growable: false);
+  }
+
+  static List<TextRange> _wholeWordPhraseRanges(
+    String text,
+    String query,
+    bool caseSensitive,
+  ) {
+    final queryTokens = _tokenizeText(query, caseSensitive: caseSensitive);
+    if (queryTokens.isEmpty) {
+      return const [];
+    }
+
+    final textTokens = _tokenizeTextWithRanges(
+      text,
+      caseSensitive: caseSensitive,
+    );
+    if (queryTokens.length > textTokens.length) {
+      return const [];
+    }
+
+    final ranges = <TextRange>[];
+    for (var i = 0; i <= textTokens.length - queryTokens.length; i++) {
+      var matches = true;
+      for (var j = 0; j < queryTokens.length; j++) {
+        if (textTokens[i + j].token != queryTokens[j]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        ranges.add(
+          TextRange(
+            start: textTokens[i].start,
+            end: textTokens[i + queryTokens.length - 1].end,
+          ),
+        );
+      }
+    }
+    return ranges;
+  }
+
+  static List<TextRange> _tokenRanges(
+    String text,
+    String query,
+    bool caseSensitive,
+  ) {
+    final queryTokens = _tokenizeText(
+      query,
+      caseSensitive: caseSensitive,
+    ).toSet();
+    if (queryTokens.isEmpty) {
+      return const [];
+    }
+
+    return _tokenizeTextWithRanges(text, caseSensitive: caseSensitive)
+        .where((token) => queryTokens.contains(token.token))
+        .map((token) => TextRange(start: token.start, end: token.end))
+        .toList(growable: false);
+  }
+
+  static List<_TokenMatch> _tokenizeTextWithRanges(
+    String text, {
+    bool caseSensitive = false,
+  }) {
+    return _unicodeTermPattern
+        .allMatches(text)
+        .map((match) {
+          final rawToken = match.group(0)!;
+          return _TokenMatch(
+            caseSensitive ? rawToken : rawToken.toLowerCase(),
+            match.start,
+            match.end,
+          );
+        })
+        .where((token) => token.token.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  static String _buildSnippet(String text, List<TextRange> ranges) {
+    if (ranges.isEmpty) {
+      if (text.length <= 160) {
+        return text;
+      }
+      return '${text.substring(0, 157)}...';
+    }
+    if (text.length <= 160) {
+      return text;
+    }
+
+    final first = ranges.first;
+    final start = math.max(0, first.start - 48);
+    final end = math.min(text.length, first.end + 48);
+    final prefix = start > 0 ? '...' : '';
+    final suffix = end < text.length ? '...' : '';
+    return '$prefix${text.substring(start, end).trim()}$suffix';
+  }
+
   static List<String> _tokenizeText(String text, {bool caseSensitive = false}) {
     final normalized = _normalizeText(text, caseSensitive: caseSensitive);
     if (normalized.isEmpty) {
@@ -790,6 +1316,18 @@ class Bible {
       };
     }
 
-    return json.encode({'language': language.name, 'books': booksData});
+    return json.encode({
+      'language': language.name,
+      'metadata': metadata.toJson(),
+      'books': booksData,
+    });
   }
+}
+
+class _TokenMatch {
+  final String token;
+  final int start;
+  final int end;
+
+  const _TokenMatch(this.token, this.start, this.end);
 }

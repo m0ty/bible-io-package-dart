@@ -1,3 +1,9 @@
+@Deprecated(
+  'Example code is now under example/bible_io_example.dart and will be '
+  'removed from lib in the next major release.',
+)
+library;
+
 import 'package:bible_io/bible_io.dart';
 
 /// Example usage of bible_io package showcasing modern Dart features.
@@ -14,7 +20,11 @@ Future<void> bibleExample() async {
 
   // 2. FUZZY SEARCH (New feature!)
   print('\n🔍 Fuzzy search for "begnning" (typo):');
-  final fuzzyResults = bible.fuzzySearch('begnning', maxDistance: 2, maxResults: 3);
+  final fuzzyResults = bible.fuzzySearch(
+    'begnning',
+    maxDistance: 2,
+    maxResults: 3,
+  );
   print('Found ${fuzzyResults.verses.length} verses with fuzzy match');
 
   // 3. JSON EXPORT (New feature!)
@@ -23,11 +33,14 @@ Future<void> bibleExample() async {
   print('📄 Exported ${jsonExport.length} characters of JSON');
 
   // 4. OPERATOR OVERLOADING (Dart-like syntax)
-  final genesis = bible[BibleBookEnum.genesis]; // bible[book]
+  final genesis = bible[BibleBookEnum.genesis] as Book; // bible[book]
   print('Genesis has ${genesis.chapters.length} chapters');
-  final chapter1 = bible[(BibleBookEnum.genesis, 1)]; // bible[(book, chapter)]
+  final chapter1 =
+      bible[(BibleBookEnum.genesis, 1)] as Chapter; // bible[(book, chapter)]
   print('Chapter 1 has ${chapter1.verses.length} verses');
-  final verse = bible[(BibleBookEnum.genesis, 1, 1)]; // bible[(book, chapter, verse)]
+  final verse =
+      bible[(BibleBookEnum.genesis, 1, 1)]
+          as Verse; // bible[(book, chapter, verse)]
 
   // 5. RESULT TYPES (Functional error handling)
   final result = bible.getVerseResult(BibleBookEnum.genesis, 1, 1);
@@ -38,7 +51,11 @@ Future<void> bibleExample() async {
   }
 
   // 4. EXTENSION METHODS (Fluent API)
-  final searchResults = bible.searchAdvanced(text: 'God', wholeWords: true, maxResults: 10);
+  final searchResults = bible.searchAdvanced(
+    text: 'God',
+    wholeWords: true,
+    maxResults: 10,
+  );
   print('Found ${searchResults.count} verses containing "God"');
 
   // 5. RECORDS AND MODERN TYPES
@@ -48,17 +65,24 @@ Future<void> bibleExample() async {
   // 6. FUNCTIONAL PROGRAMMING
   final allVerses = bible.allVerses;
   final longVerses = allVerses.where((v) => v.length > 200);
-  final wordCount = allVerses.fold<int>(0, (sum, verse) => sum + verse.words.length);
-  print('Long verses count: ${longVerses.length}, total word count: $wordCount');
+  final wordCount = allVerses.fold<int>(
+    0,
+    (sum, verse) => sum + verse.words.length,
+  );
+  print(
+    'Long verses count: ${longVerses.length}, total word count: $wordCount',
+  );
 
   // 7. NULL SAFETY
   final safeVerse = bible.verseOrNull('Genesis 1:1');
   final safeVerses = bible.versesOrNull('Genesis 1:1-3');
-  print('safeVerse: ${safeVerse?.text ?? 'not found'}, safeVerses count: ${safeVerses?.length ?? 0}');
+  print(
+    'safeVerse: ${safeVerse?.text ?? 'not found'}, safeVerses count: ${safeVerses?.length ?? 0}',
+  );
 
   // 8. STATISTICS AND ANALYTICS
   print('Bible stats: ${bible.stats}');
-  // print('Genesis stats: ${genesis.stats}'); // TODO: Debug extension issue
+  print('Genesis stats: ${genesis.stats}');
 
   // 9. ADVANCED SEARCH
   final advancedSearch = bible.searchAdvanced(
@@ -84,7 +108,9 @@ Future<void> bibleExample() async {
   print('John 3:16: $result2');
 
   // 12. ITERABLES AND LAZY EVALUATION
-  final genesisVerses = bible.allVerses.where((v) => v.book == BibleBookEnum.genesis);
+  final genesisVerses = bible.allVerses.where(
+    (v) => v.book == BibleBookEnum.genesis,
+  );
   final versesWithGod = genesisVerses.where((v) => v.containsWord('God'));
   print('Genesis verses containing God: ${versesWithGod.length}');
 
@@ -98,10 +124,12 @@ Future<void> bibleExample() async {
   }
 
   // 14. CONVENIENCE METHODS
-  final firstVerse = verse as Verse;
+  final firstVerse = verse;
   print('Reference: ${firstVerse.reference}');
   print('Contains "beginning": ${firstVerse.containsWord('beginning')}');
-  print('Contains all ["God", "created"]: ${firstVerse.containsAll(['God', 'created'])}');
+  print(
+    'Contains all ["God", "created"]: ${firstVerse.containsAll(['God', 'created'])}',
+  );
 
   print('🎉 Bible IO example completed successfully!');
 }

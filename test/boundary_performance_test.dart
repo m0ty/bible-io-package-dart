@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 void main() {
   late Bible bible;
 
-  setUp(() async {
+  setUpAll(() async {
     // Use the real KJV Bible JSON file for testing
     bible = await Bible.load('test/bible_versions/en_kjv.json');
   });
@@ -32,29 +32,33 @@ void main() {
     });
 
     test('Large search operations complete in reasonable time', () {
-      final startTime = DateTime.now();
+      final stopwatch = Stopwatch()..start();
       final results = bible.search('the');
-      final endTime = DateTime.now();
-      final duration = endTime.difference(startTime);
-      expect(duration.inSeconds, lessThan(5)); // Should complete in under 5 seconds
+      stopwatch.stop();
+      expect(
+        stopwatch.elapsed.inSeconds,
+        lessThan(5),
+      ); // Should complete in under 5 seconds
       expect(results.length, greaterThan(1000)); // Should find many results
     });
 
-    test('Memory usage is reasonable for large operations', () {
-      // This is a basic test - in a real scenario you'd use memory profiling tools
-      final results = bible.search('the');
-      expect(results.length, greaterThan(1000));
-      // The test passes if no out-of-memory errors occur
+    test('Performance metrics report populated index and memory estimates', () {
+      final metrics = bible.performanceMetrics;
+
+      expect(metrics.searchIndexSize, greaterThan(0));
+      expect(metrics.memoryUsage, greaterThan(0));
+      expect(metrics.loadTime, isNot(Duration.zero));
     });
 
     test('Concurrent access works correctly', () async {
-      // Test basic concurrent access
       final futures = <Future>[];
       for (int i = 0; i < 10; i++) {
-        futures.add(Future(() {
-          final book = bible.getBook(BibleBookEnum.genesis);
-          expect(book.name, 'Genesis');
-        }));
+        futures.add(
+          Future(() {
+            final book = bible.getBook(BibleBookEnum.genesis);
+            expect(book.name, 'Genesis');
+          }),
+        );
       }
       await Future.wait(futures);
     });

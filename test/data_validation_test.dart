@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 void main() {
   late Bible bible;
 
-  setUp(() async {
+  setUpAll(() async {
     // Use the real KJV Bible JSON file for testing
     bible = await Bible.load('test/bible_versions/en_kjv.json');
   });
@@ -13,7 +13,12 @@ void main() {
     test('Bible data has correct structure', () {
       expect(bible.books.length, 66); // KJV has 66 books
       expect(bible.books.every((book) => book.chapters.isNotEmpty), isTrue);
-      expect(bible.books.every((book) => book.chapters.every((chapter) => chapter.verses.isNotEmpty)), isTrue);
+      expect(
+        bible.books.every(
+          (book) => book.chapters.every((chapter) => chapter.verses.isNotEmpty),
+        ),
+        isTrue,
+      );
     });
 
     test('Book data is valid', () {
@@ -50,7 +55,9 @@ void main() {
     test('Verse numbers are sequential within chapters', () {
       for (final book in bible.books) {
         for (final chapter in book.chapters) {
-          final verseNumbers = chapter.verses.map((v) => v.verseNumber).toList();
+          final verseNumbers = chapter.verses
+              .map((v) => v.verseNumber)
+              .toList();
           for (int i = 0; i < verseNumbers.length - 1; i++) {
             expect(verseNumbers[i + 1], verseNumbers[i] + 1);
           }

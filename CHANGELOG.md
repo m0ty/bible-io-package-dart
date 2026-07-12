@@ -1,3 +1,34 @@
+## 1.1.0 - 2026-07-12
+
+### Added
+
+- Platform-neutral asset, UTF-8 byte, decoded-map, and JSON-string loading
+- A conventional `example/bible_io_example.dart` package example; the legacy
+  `lib/bible_example.dart` entry point is deprecated
+- Bible source metadata, translation catalogs, stable locations, and
+  display-ready search hits
+- `bible_io_references` 1.1 integration with typed parsing, loaded-book
+  aliases, rich passage resolution, cross-book ranges, and OSIS/USFM interop
+
+### Changed
+
+- Book, chapter, verse, search-result, and passage-result collections are
+  defensively copied and exposed as immutable values
+- Chapter and verse access now uses declared numbers, supporting sparse and
+  out-of-order source JSON safely
+- Search types live in a dedicated module, removing the Bible/extensions
+  import cycle
+- Fuzzy search and word statistics now tokenize Unicode text consistently
+
+### Fixed
+
+- Bible metadata now preserves nested source information across JSON
+  round-trips
+- Nested language catalog maps no longer produce bogus sources
+- Fuzzy search handles blank queries, non-positive result limits, Unicode
+  scalar edits, and invalid distance limits correctly
+- Chapter navigation now follows actual declared chapter numbers
+
 ## 1.0.0
 
 ### ✨ Major Features

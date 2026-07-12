@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 void main() {
   late Bible bible;
 
-  setUp(() async {
+  setUpAll(() async {
     // Use the real KJV Bible JSON file for testing
     bible = await Bible.load('test/bible_versions/en_kjv.json');
   });
@@ -19,7 +19,10 @@ void main() {
     });
 
     test('getVerse throws VerseNotFoundError for non-existent verse', () {
-      expect(() => bible.getVerse(BibleBookEnum.genesis, 1, 32), throwsA(isA<VerseNotFoundError>()));
+      expect(
+        () => bible.getVerse(BibleBookEnum.genesis, 1, 32),
+        throwsA(isA<VerseNotFoundError>()),
+      );
     });
 
     test('getVerses returns all verses in chapter', () {

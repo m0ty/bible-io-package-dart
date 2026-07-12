@@ -4,14 +4,20 @@ A Dart package for loading and working with structured Bible text data. It suppo
 
 ## Features
 
-- Async Bible loading with `Bible.load()`
+- Async file loading with `Bible.load()` plus asset, UTF-8 byte, decoded-map,
+  and JSON-string constructors
 - UTF-8 safe loading for non-Latin Bible text
+- Immutable, number-aware book/chapter/verse models (including sparse numbering)
 - Indexed search with stable canonical Bible order
 - Unicode-aware tokenization for Arabic, Chinese, Greek, Russian, Korean, Hebrew, and other scripts
 - Exact phrase, all-terms, and any-term advanced search modes
 - Whole-word matching without relying on ASCII-oriented `\b`
 - Operator access with `bible[book]`, `bible[(book, chapter)]`, and `bible[(book, chapter, verse)]`
-- Reference parsing through `bible_io_references`
+- Multilingual reference parsing through `bible_io_references`
+- Cross-book ranges and rich passages (books, chapter ranges, verse lists, and
+  semicolon-separated sequences)
+- Typed parse results, localized formatting, and OSIS/USFM interoperability
+- Translation metadata and catalog helpers for multi-Bible applications
 - Result-based helpers such as `getVerseResult()`
 - Statistics helpers for Bible, book, chapter, and verse data
 
@@ -35,9 +41,32 @@ Future<void> main() async {
   final verse = bible.getVerse(BibleBookEnum.genesis, 1, 1);
   print(verse.text);
 
-  final john316 = bible.getVerseByRef('John 3:16');
-  print(john316.text);
+final john316 = bible.getVerseByRef('John 3:16');
+print(john316.text);
 }
+```
+
+## Loading and Metadata
+
+File loading uses `dart:io`. Platform-neutral applications can load from an
+asset bundle, UTF-8 bytes, a decoded map, or a JSON string:
+
+```dart
+final fromAsset = await Bible.loadAsset(rootBundle, 'assets/kjv.json');
+final fromBytes = Bible.fromUtf8Bytes(bytes);
+final fromMap = Bible.fromDecodedJson(decodedJson);
+
+print(fromAsset.translationName);
+print(fromAsset.languageCode);
+print(fromAsset.textDirection);
+```
+
+`BibleCatalog` reads list- or map-shaped translation catalogs and groups
+`BibleSource` values by language:
+
+```dart
+final catalog = BibleCatalog.fromJson(catalogJson);
+final englishSources = catalog.forLanguage('en');
 ```
 
 ## Navigation
@@ -49,6 +78,52 @@ final genesis1v1 = bible[(BibleBookEnum.genesis, 1, 1)];
 
 final verses = bible.getVerses(BibleBookEnum.genesis, 1);
 final range = bible.getVerseRangeByRef('Genesis 1:1-3');
+```
+
+Chapter navigation uses stable `BibleLocation` values:
+
+```dart
+const current = BibleLocation(book: BibleBookEnum.genesis, chapter: 50);
+final next = bible.nextChapter(current); // Exodus 1
+```
+
+## References and Rich Passages
+
+Reference parsing is multilingual by default, while the loaded Bible's
+language and custom book names are used as tie-break preferences. A concrete
+`inputLanguage` makes parsing strict:
+
+```dart
+final parsed = bible.parseReference('Juan 3:16');
+if (parsed case ParseSuccess(value: final reference)) {
+  final verses = bible.resolveReference(reference);
+  print(verses.single.text);
+}
+
+final spanish = bible.getVerseByRef(
+  'Juan 3:16',
+  inputLanguage: BibleLanguageEnum.spanish,
+);
+```
+
+Use `getPassage()` for the richer 1.1 grammar. Results are immutable and keep
+the expression's order and intentional overlaps:
+
+```dart
+final selection = bible.getPassage(
+  'John 3:16,18-20; Acts 2:1-4; Romans 8',
+);
+
+final crossBook = bible.getVerseRangeByRef(
+  'John 21:25-Acts 1:2',
+);
+```
+
+OSIS and USFM values from `bible_io_references` resolve directly:
+
+```dart
+final osis = referenceFromOsisIdentifier('John.3.16');
+final verse = bible.resolveReference(osis).single;
 ```
 
 ## Search
@@ -97,6 +172,15 @@ for (final verse in results.verses) {
 }
 ```
 
+For UI rendering, `SearchResults.hits` includes the resolved `Book`, display
+reference, snippet, and UTF-16 match ranges:
+
+```dart
+for (final hit in results.hits) {
+  print('${hit.reference}: ${hit.snippet}');
+}
+```
+
 For reusable search configuration, use `SearchOptions`:
 
 ```dart
@@ -138,6 +222,11 @@ The package expects Bible data in this structure:
 ```json
 {
   "language": "English",
+  "metadata": {
+    "translationName": "King James Version",
+    "abbreviation": "KJV",
+    "languageCode": "en"
+  },
   "books": {
     "gn": {
       "name": "Genesis",
@@ -155,6 +244,7 @@ The package expects Bible data in this structure:
 ## Testing
 
 ```bash
+dart analyze
 dart test
 ```
 

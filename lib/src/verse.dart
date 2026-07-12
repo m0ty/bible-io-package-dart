@@ -1,4 +1,4 @@
-import 'package:bible_io_references/package.dart';
+import 'package:bible_io_references/bible_io_references.dart';
 
 /// Lightweight data structure representing a single verse.
 class Verse {
@@ -7,7 +7,9 @@ class Verse {
   final int verseNumber;
   final String text;
 
-  Verse(this.book, this.chapterNumber, this.verseNumber, this.text);
+  const Verse(this.book, this.chapterNumber, this.verseNumber, this.text)
+    : assert(chapterNumber > 0),
+      assert(verseNumber > 0);
 
   /// Check if the verse contains a given word (case-insensitive).
   bool containsWord(String word) {
