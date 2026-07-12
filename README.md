@@ -25,7 +25,7 @@ A Dart package for loading and working with structured Bible text data. It suppo
 
 ```yaml
 dependencies:
-  bible_io: ^1.0.1
+  bible_io: ^1.1.0
 ```
 
 `bible_io_references` is exported by this package, so consumers can import `package:bible_io/bible_io.dart` for both Bible IO and reference types.
